@@ -52,7 +52,10 @@ async function fetchWithRetry(input, init = {}) {
 
 function createTursoClient(url, authToken, label) {
   const clientConfig = { url, ...(authToken && { authToken }) };
-  if (/^https?:\/\//i.test(url)) clientConfig.fetch = fetchWithRetry;
+  // libsql:// URLs are resolved to HTTPS by @libsql/client. Always install the
+  // bounded fetch wrapper for remote databases so a network failure cannot
+  // leave the pincode request hanging indefinitely.
+  if (!/^file:/i.test(url)) clientConfig.fetch = fetchWithRetry;
   try {
     console.log(`[turso] ${label}: ${new URL(url).host}`);
   } catch {

@@ -22,6 +22,8 @@ const AdminDashboard = lazy(() => import("@/pages/admin/AdminDashboard"));
 const AdminOrders = lazy(() => import("@/pages/admin/AdminOrders"));
 const AdminCatalog = lazy(() => import("@/pages/admin/AdminCatalog"));
 const AdminOffers = lazy(() => import("@/pages/admin/AdminOffers"));
+const AdminCoupons = lazy(() => import("@/pages/admin/AdminCoupons"));
+const AdminCustomers = lazy(() => import("@/pages/admin/AdminCustomers"));
 const AdminModule = lazy(() => import("@/pages/admin/AdminModule"));
 const AdminAnalytics = lazy(() => import("@/pages/admin/AdminAnalytics"));
 const AdminHeaderTheme = lazy(() => import("@/pages/admin/AdminHeaderTheme"));
@@ -78,7 +80,7 @@ function Router() {
           )} />
           <Route path="/admin/coupons" component={() => (
             <ProtectedRoute adminOnly>
-              <AdminModule />
+              <AdminCoupons />
             </ProtectedRoute>
           )} />
           <Route path="/admin/delivery" component={() => (
@@ -88,7 +90,7 @@ function Router() {
           )} />
           <Route path="/admin/customers" component={() => (
             <ProtectedRoute adminOnly>
-              <AdminModule />
+              <AdminCustomers />
             </ProtectedRoute>
           )} />
           <Route path="/admin/analytics" component={() => (

@@ -36,12 +36,14 @@
   "devDependencies": {
     "nodemon": "^3.0.1"
   },
-  "pnpm.onlyBuiltDependencies": [
-    "@firebase/util",
-    "esbuild",
-    "protobufjs",
-    "sharp"
-  ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@firebase/util",
+      "esbuild",
+      "protobufjs",
+      "sharp"
+    ]
+  },
   "pnpm.overrides": {
     "node-fetch": "2.7.0"
   }

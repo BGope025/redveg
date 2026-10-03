@@ -194,7 +194,17 @@ function normalizeDashboardOrder(raw: any) {
     pincode: raw.pincode || "",
     placedAt: raw.placedAt || raw.created_at || raw.order_date || "",
     total: Number(raw.total ?? raw.total_amount ?? 0),
-    status: normalizedStatus === "approved" || normalizedStatus === "completed" ? "Confirmed" : normalizedStatus === "cancelled" ? "Cancelled" : "New",
+    status: normalizedStatus === "approved" || normalizedStatus === "confirmed"
+      ? "Confirmed"
+      : normalizedStatus === "processing"
+        ? "Processing"
+        : normalizedStatus === "out_for_delivery"
+          ? "Out for Delivery"
+          : normalizedStatus === "delivered" || normalizedStatus === "completed"
+            ? "Delivered"
+            : normalizedStatus === "cancelled"
+              ? "Cancelled"
+              : "New",
   };
 }
 

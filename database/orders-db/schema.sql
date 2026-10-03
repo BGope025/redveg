@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS orders (
     user_id TEXT NOT NULL,
     cart_snapshot TEXT NOT NULL, -- JSON string of cart items at time of checkout
     total_amount REAL NOT NULL,
+    payment_status TEXT DEFAULT 'unpaid',
+    received_amount REAL DEFAULT 0,
+    balance_amount REAL,
+    payment_updated_at TIMESTAMP,
+    payment_updated_by TEXT,
     customer_name TEXT NOT NULL,
     customer_phone TEXT NOT NULL,
     customer_address TEXT,

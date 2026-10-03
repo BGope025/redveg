@@ -9,9 +9,11 @@ const getAllCategories = async (req, res) => {
   try {
     const db = await getDatabaseConnection('catalog');
 
-    // Get distinct categories from products table
+    // Get one representative real product image for every active category.
+    // The storefront only fetches a small featured-product page, so deriving
+    // category images from that page leaves most category cards empty.
     const result = await db.execute({
-      sql: "SELECT DISTINCT category FROM products WHERE is_active = 1 AND category IS NOT NULL AND category != '' ORDER BY category",
+      sql: "SELECT category, MAX(image_url) AS image_url FROM products WHERE is_active = 1 AND category IS NOT NULL AND category != '' AND image_url IS NOT NULL AND image_url != '' GROUP BY category ORDER BY category",
       args: []
     });
 
@@ -26,7 +28,7 @@ const getAllCategories = async (req, res) => {
         id: id,
         name: row.category.charAt(0).toUpperCase() + row.category.slice(1).toLowerCase(),
         description: `${row.category} products`,
-        image: `/placeholder-${id}.jpg`,
+        image: row.image_url || `/placeholder-${id}.jpg`,
         accent: getRandomAccentColor(index)
       };
 

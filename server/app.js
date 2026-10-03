@@ -10,10 +10,22 @@ const logger = require('./utils/logger');
 
 const app = express();
 
+const configuredCorsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5177,http://localhost:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 // Middleware
 app.use(cookieParser());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: (requestOrigin, callback) => {
+    // Non-browser requests (for example health checks) have no Origin header.
+    if (!requestOrigin) return callback(null, true);
+    if (configuredCorsOrigins.includes('*') || configuredCorsOrigins.includes(requestOrigin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origin not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));

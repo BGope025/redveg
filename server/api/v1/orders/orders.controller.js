@@ -3,6 +3,9 @@ const { generateOrderId, generateCartSnapshot } = require('../../../utils/id-gen
 const { generateNotFoundError, generateValidationError, generateOutOfStockError } = require('../../../utils/error-classes');
 const { executeCrossDbSaga } = require('../../../services/db-saga.service');
 const { generateWhatsAppMessage } = require('../../../services/whatsapp.service');
+const { CouponValidationError, roundMoney, calculateDeliveryFee, findApplicableCoupon, reserveCouponUsage, releaseCouponUsage } = require('../../../services/coupon.service');
+const { ensureOrderCouponColumns, ensureOrderPaymentColumns } = require('./orders.schema');
+const { calculatePaymentUpdate } = require('../../../services/payment.service');
 const logger = require('../../../utils/logger');
 
 /**
@@ -12,6 +15,7 @@ const logger = require('../../../utils/logger');
 const getAllOrders = async (req, res) => {
   try {
     const db = await getDatabaseConnection('orders');
+    await ensureOrderPaymentColumns(db);
 
     // Build query with filtering
     let sql = `SELECT o.* FROM orders o WHERE o.is_archived = 0`;
@@ -171,8 +175,18 @@ const getOrderById = async (req, res) => {
  */
 const createOrder = async (req, res) => {
   let orderId = null;
+  let catalogDb = null;
+  let ordersDb = null;
+  let reservedItems = null;
+  let reservedCouponId = null;
+  let orderInserted = false;
   try {
-    const { cartItems, customer } = req.body;
+    const { cartItems, customer } = req.body || {};
+    const requestedCouponCode = req.body?.couponCode;
+    if (requestedCouponCode != null && typeof requestedCouponCode !== 'string') {
+      throw generateValidationError('Coupon code must be text');
+    }
+    let couponCode = typeof requestedCouponCode === 'string' ? requestedCouponCode.trim().toUpperCase() : '';
     const customerId = req.customer?.customerId || customer?.customerId || `guest-${Date.now()}`;
 
     // Validate required fields
@@ -182,14 +196,16 @@ const createOrder = async (req, res) => {
 
     // Validate each cart item
     for (const item of cartItems) {
-      if (!item.productId || !item.variantId || !item.quantity || item.quantity <= 0) {
+      if (typeof item.productId !== 'string' || !item.productId || typeof item.variantId !== 'string' || !item.variantId || !Number.isInteger(item.quantity) || item.quantity <= 0) {
         throw generateValidationError('Invalid cart item format');
       }
     }
 
-    const catalogDb = await getDatabaseConnection('catalog');
-    const ordersDb = await getDatabaseConnection('orders');
+    catalogDb = await getDatabaseConnection('catalog');
+    ordersDb = await getDatabaseConnection('orders');
     const customerDb = await getDatabaseConnection('customer');
+      await ensureOrderCouponColumns(ordersDb);
+      await ensureOrderPaymentColumns(ordersDb);
 
     let customerDetails = customer;
     if (req.customer) {
@@ -202,26 +218,46 @@ const createOrder = async (req, res) => {
     // Generate order ID
     orderId = generateOrderId();
 
-    // Create cart snapshot (immutable copy of cart data at time of checkout)
-    const cartSnapshot = await generateCartSnapshot(cartItems, catalogDb);
-
-    // Calculate total amount
+    // Re-read live catalog prices and reserve stock/coupon usage under one catalog transaction.
+    let cartSnapshot = [];
+    let subtotalAmount = 0;
+    let discountAmount = 0;
+    let deliveryFee = 0;
     let totalAmount = 0;
-    for (const item of cartSnapshot) {
-      totalAmount += item.price * item.quantity;
-    }
-
-    // Reserve inventory in one catalog transaction so concurrent checkouts cannot oversell.
     await catalogDb.execute('BEGIN IMMEDIATE TRANSACTION');
     try {
+      try {
+        cartSnapshot = await generateCartSnapshot(cartItems, catalogDb);
+      } catch (error) {
+        if (/Product or variant not found/i.test(String(error.message))) {
+          throw generateNotFoundError('One or more basket items are no longer available');
+        }
+        throw error;
+      }
+      subtotalAmount = roundMoney(cartSnapshot.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0));
+      if (!Number.isFinite(subtotalAmount) || subtotalAmount <= 0) throw generateValidationError('The basket total must be greater than zero');
+
+      if (couponCode) {
+        const quote = await findApplicableCoupon(catalogDb, couponCode, subtotalAmount);
+        couponCode = quote.code;
+        discountAmount = quote.discountAmount;
+        reservedCouponId = quote.couponId;
+        await reserveCouponUsage(catalogDb, reservedCouponId);
+      }
+
+      deliveryFee = calculateDeliveryFee(subtotalAmount);
+      totalAmount = roundMoney(Math.max(0, subtotalAmount - discountAmount) + deliveryFee);
+
       for (const item of cartItems) {
         const result = await catalogDb.execute({ sql: 'UPDATE variants SET stock_count = stock_count - ? WHERE id = ? AND product_id = ? AND stock_count >= ?', args: [item.quantity, item.variantId, item.productId, item.quantity] });
         if (!result.rowsAffected) throw generateOutOfStockError(`Insufficient stock for ${item.variantId}`);
         await catalogDb.execute({ sql: 'UPDATE products SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND (SELECT COALESCE(SUM(stock_count), 0) FROM variants WHERE product_id = ?) = 0', args: [item.productId, item.productId] });
       }
       await catalogDb.execute('COMMIT');
+      reservedItems = cartItems.map((item) => ({ ...item }));
     } catch (error) {
-      await catalogDb.execute('ROLLBACK');
+      try { await catalogDb.execute('ROLLBACK'); } catch (rollbackError) { logger.error('Error rolling back checkout reservation:', rollbackError); }
+      reservedCouponId = null;
       throw error;
     }
 
@@ -230,8 +266,10 @@ const createOrder = async (req, res) => {
       sql: `
         INSERT INTO orders (
           id, user_id, customer_id, cart_snapshot, total_amount, customer_name,
-          customer_phone, customer_address, status, is_archived, order_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP)
+          customer_phone, customer_address, coupon_id, coupon_code, subtotal_amount,
+          discount_amount, delivery_fee, payment_status, received_amount, balance_amount,
+          payment_updated_at, payment_updated_by, status, is_archived, order_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 0, ?, NULL, NULL, 'pending', 0, CURRENT_TIMESTAMP)
       `,
       args: [
         orderId,
@@ -241,9 +279,16 @@ const createOrder = async (req, res) => {
         totalAmount,
         customerDetails.name,
         customerDetails.phoneNo,
-        customerDetails.address
-      ]
+        customerDetails.address,
+        reservedCouponId,
+        couponCode || null,
+        subtotalAmount,
+          discountAmount,
+          deliveryFee,
+          totalAmount,
+        ]
     });
+    orderInserted = true;
 
     logger.info(`Order created: ${orderId} for customer ${customerId}`);
 
@@ -251,8 +296,14 @@ const createOrder = async (req, res) => {
     const whatsappMessage = generateWhatsAppMessage({
       orderId,
       customerName: customerDetails.name,
+      customerPhone: customerDetails.phoneNo || customerDetails.phone_no,
+      customerAddress: customerDetails.address,
       cartItems: cartSnapshot,
-      totalAmount
+      totalAmount,
+      subtotalAmount,
+      discountAmount,
+      deliveryFee,
+      couponCode,
     });
 
     res.status(201).json({
@@ -262,21 +313,44 @@ const createOrder = async (req, res) => {
         orderId,
         status: 'pending',
         whatsappMessage,
+        subtotalAmount,
+        discountAmount,
+        deliveryFee,
+        couponCode: couponCode || null,
         totalAmount
       }
     });
   } catch (error) {
-    // If order was created but something failed later, we might need to clean up
-    if (orderId) {
+    // If an inserted order is removed after an error, release its reservations too.
+    let orderRemoved = !orderInserted;
+    if (orderId && orderInserted && ordersDb) {
       try {
-        const ordersDb = await getDatabaseConnection('orders');
-        await ordersDb.execute({
+        const cleanup = await ordersDb.execute({
           sql: 'DELETE FROM orders WHERE id = ?',
           args: [orderId]
         });
+        orderRemoved = Boolean(cleanup.rowsAffected);
       } catch (cleanupError) {
         logger.error(`Error cleaning up order ${orderId}:`, cleanupError);
       }
+    }
+
+    if (reservedItems && orderRemoved && catalogDb) {
+      try {
+        await catalogDb.execute('BEGIN IMMEDIATE TRANSACTION');
+        for (const item of reservedItems) {
+          await catalogDb.execute({ sql: 'UPDATE variants SET stock_count = stock_count + ? WHERE id = ? AND product_id = ?', args: [item.quantity, item.variantId, item.productId] });
+        }
+        if (reservedCouponId) await releaseCouponUsage(catalogDb, reservedCouponId);
+        await catalogDb.execute('COMMIT');
+      } catch (compensationError) {
+        try { await catalogDb.execute('ROLLBACK'); } catch { /* Keep the original checkout error. */ }
+        logger.error(`Error restoring checkout reservations for ${orderId || 'unassigned order'}:`, compensationError);
+      }
+    }
+
+    if (error instanceof CouponValidationError) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
     }
 
     if (error.type === 'validation-error') {
@@ -291,6 +365,10 @@ const createOrder = async (req, res) => {
         success: false,
         message: error.message
       });
+    }
+
+    if (error.type === 'out-of-stock') {
+      return res.status(409).json({ success: false, message: error.message });
     }
 
     logger.error('Error creating order:', error);
@@ -401,13 +479,122 @@ const cancelOrder = async (req, res) => {
   try {
     const { id } = req.params;
     const db = await getDatabaseConnection('orders');
+    await ensureOrderCouponColumns(db);
+    const order = await db.execute({ sql: "SELECT coupon_id FROM orders WHERE id = ? AND is_archived = 0 AND LOWER(status) IN ('pending', 'new')", args: [id] });
     const result = await db.execute({ sql: "UPDATE orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_archived = 0 AND LOWER(status) IN ('pending', 'new')", args: [id] });
     if (!result.rowsAffected) throw generateNotFoundError('Pending order not found');
+    const couponId = order.rows[0]?.coupon_id;
+    if (couponId) {
+      try {
+        const catalogDb = await getDatabaseConnection('catalog');
+        await releaseCouponUsage(catalogDb, couponId);
+      } catch (couponReleaseError) {
+        logger.error(`Unable to release coupon use for cancelled order ${id}:`, couponReleaseError);
+      }
+    }
     res.status(200).json({ success: true, data: { id, status: 'cancelled' } });
   } catch (error) {
     if (error.type === 'not-found') return res.status(404).json({ success: false, message: error.message });
     logger.error('Error cancelling order:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const updateOrderStatus = async (req, res) => {
+  const statusTransitions = {
+    processing: ['approved', 'confirmed'],
+    out_for_delivery: ['processing'],
+    delivered: ['out_for_delivery', 'approved', 'confirmed']
+  };
+
+  const nextStatus = typeof req.body?.status === 'string'
+    ? req.body.status.trim().toLowerCase().replace(/[\s-]+/g, '_')
+    : '';
+  const previousStatuses = Object.prototype.hasOwnProperty.call(statusTransitions, nextStatus)
+    ? statusTransitions[nextStatus]
+    : null;
+
+  if (!previousStatuses) {
+    return res.status(400).json({
+      success: false,
+      message: 'Status must be processing, out_for_delivery, or delivered'
+    });
+  }
+
+  try {
+    const { id } = req.params;
+    const db = await getDatabaseConnection('orders');
+    const order = await db.execute({
+      sql: 'SELECT status FROM orders WHERE id = ? AND is_archived = 0',
+      args: [id]
+    });
+
+    if (!order.rows.length) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const currentStatus = String(order.rows[0].status).toLowerCase();
+    if (!previousStatuses.includes(currentStatus)) {
+      return res.status(409).json({
+        success: false,
+        message: `Order cannot move from ${currentStatus} to ${nextStatus}`
+      });
+    }
+
+    const result = await db.execute({
+      sql: `UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_archived = 0 AND LOWER(status) IN (${previousStatuses.map(() => '?').join(', ')})`,
+      args: [nextStatus, id, ...previousStatuses]
+    });
+
+    if (!result.rowsAffected) {
+      return res.status(409).json({ success: false, message: 'Order status changed; refresh and try again' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: { id, status: nextStatus }
+    });
+  } catch (error) {
+    logger.error('Error updating order status:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const updateOrderPayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await getDatabaseConnection('orders');
+    await ensureOrderPaymentColumns(db);
+    const existing = await db.execute({
+      sql: 'SELECT total_amount, status FROM orders WHERE id = ? AND is_archived = 0',
+      args: [id],
+    });
+    if (!existing.rows.length) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (String(existing.rows[0].status || '').toLowerCase() === 'cancelled') {
+      return res.status(409).json({ success: false, message: 'Cancelled orders cannot be updated as payments' });
+    }
+
+    const payment = calculatePaymentUpdate(existing.rows[0].total_amount, req.body?.paymentStatus, req.body?.dueAmount);
+    const result = await db.execute({
+      sql: `UPDATE orders SET payment_status = ?, received_amount = ?, balance_amount = ?,
+        payment_updated_at = CURRENT_TIMESTAMP, payment_updated_by = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND is_archived = 0 AND LOWER(status) <> 'cancelled'`,
+      args: [payment.paymentStatus, payment.receivedAmount, payment.dueAmount, req.user?.userId || null, id],
+    });
+    if (!result.rowsAffected) return res.status(409).json({ success: false, message: 'Order payment changed; refresh and try again' });
+    return res.status(200).json({
+      success: true,
+      data: {
+        id,
+        paymentStatus: payment.paymentStatus,
+        receivedAmount: payment.receivedAmount,
+        dueAmount: payment.dueAmount,
+      },
+    });
+  } catch (error) {
+    if (error.type === 'validation-error') return res.status(400).json({ success: false, message: error.message });
+    logger.error('Error updating order payment:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
@@ -461,6 +648,7 @@ module.exports = {
   getUserOrders,
   getAllOrders,
   cancelOrder,
+  updateOrderStatus,
+  updateOrderPayment,
   deleteOrder
 };
-

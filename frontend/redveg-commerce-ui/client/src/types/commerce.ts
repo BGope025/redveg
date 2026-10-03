@@ -58,6 +58,13 @@ export interface Order {
   pincode: string;
   placedAt: string;
   total: number;
+  subtotal?: number;
+  discountAmount?: number;
+  deliveryFee?: number;
+  couponCode?: string | null;
+  paymentStatus?: "Paid" | "Partial" | "Unpaid";
+  receivedAmount?: number;
+  dueAmount?: number;
   itemCount: number;
   source: "Instagram" | "Google" | "Direct" | "WhatsApp";
   status: OrderStatus;

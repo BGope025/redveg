@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { useContext, useEffect, useState, ReactNode } from 'react';
 import { deliveryLocationApi } from '@/lib/deliveryLocationApi';
+import { LocationContext, type LocationContextType } from './location-context';
 
 export type DeliveryLocation = {
   pincode: string;
@@ -10,14 +11,6 @@ export type DeliveryLocation = {
   latitude?: number | null;
   longitude?: number | null;
 };
-
-type LocationContextType = {
-  location: DeliveryLocation | null;
-  setLocation: (location: DeliveryLocation | null) => void;
-  hasLocation: boolean;
-};
-
-const LocationContext = createContext<LocationContextType | undefined>(undefined);
 
 export function useLocation() {
   const context = useContext(LocationContext);

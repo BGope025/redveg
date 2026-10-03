@@ -1,44 +1,42 @@
-/**
- * Generate WhatsApp message for order confirmation
- * Formats a pre-filled message that the user can send to the admin via WhatsApp
- *
- * @param {Object} params - WhatsApp message parameters
- * @param {string} params.orderId - The order ID
- * @param {string} params.customerName - Customer's name
- * @param {Array} params.cartItems - Array of cart items with product details
- * @param {number} params.totalAmount - Total order amount
- * @returns {string} URL-encoded WhatsApp message
- */
-const generateWhatsAppMessage = ({ orderId, customerName, cartItems, totalAmount }) => {
-  // Admin phone number (should come from environment variables in production)
-  const adminPhoneNumber = process.env.ADMIN_WHATSAPP_NUMBER || '+1234567890';
+function money(value) {
+  return `₹${(Number(value) || 0).toFixed(2)}`;
+}
 
-  // Format the message
-  let message = `*New RedVeg Order* 🐟🍗\n\n`;
-  message += `*Order ID:* ${orderId}\n`;
-  message += `*Customer:* ${customerName}\n\n`;
-  message += `*Items:*\n`;
+function generateWhatsAppMessage({
+  orderId,
+  customerName,
+  customerPhone,
+  customerAddress,
+  cartItems,
+  totalAmount,
+  subtotalAmount,
+  discountAmount = 0,
+  deliveryFee = 0,
+  couponCode,
+}) {
+  const lines = [
+    '*RedVeg Order Request*',
+    '',
+    `*Order ID:* ${orderId}`,
+    '*Order status:* Pending',
+    `*Customer:* ${customerName}`,
+  ];
+  if (customerPhone) lines.push(`*Phone:* ${customerPhone}`);
+  if (customerAddress) lines.push(`*Delivery address:* ${customerAddress}`);
+  lines.push('', '*Items:*');
 
-  cartItems.forEach((item, index) => {
-    message += `${index + 1}. ${item.name || 'Product'} (${item.size || 'N/A'})`;
-    if (item.weight) {
-      message += ` - ${item.weight}`;
-    }
-    message += ` × ${item.quantity} = ${(item.price * item.quantity).toFixed(2)}`;
-    message += `\n`;
+  (Array.isArray(cartItems) ? cartItems : []).forEach((item, index) => {
+    const variant = [item.size, item.weight].filter(Boolean).join(' / ') || 'Standard';
+    const quantity = Number(item.quantity) || 0;
+    const unitPrice = Number(item.price) || 0;
+    lines.push(`${index + 1}. *${item.name || 'Product'}* — ${variant} × ${quantity} @ ${money(unitPrice)} = ${money(unitPrice * quantity)}`);
   });
 
-  message += `\n*Total Amount:* ${totalAmount.toFixed(2)}`;
-  message += `\n\n*Status:* Pending Payment`;
-  message += `\n\nPlease confirm payment and approve the order in the admin panel.`;
+  lines.push('', `*Subtotal:* ${money(subtotalAmount)}`);
+  if (couponCode && Number(discountAmount) > 0) lines.push(`*Coupon (${couponCode}):* −${money(discountAmount)}`);
+  lines.push(`*Delivery:* ${Number(deliveryFee) > 0 ? money(deliveryFee) : 'FREE'}`);
+  lines.push(`*Total:* ${money(totalAmount)}`, '', 'Please confirm this order and payment with me on WhatsApp. The order is saved as pending until RedVeg confirms it.');
+  return lines.join('\n');
+}
 
-  // URL encode for WhatsApp
-  const encodedMessage = encodeURIComponent(message);
-
-  // Return WhatsApp URL
-  return `https://wa.me/${adminPhoneNumber.replace(/\+/g, '')}?text=${encodedMessage}`;
-};
-
-module.exports = {
-  generateWhatsAppMessage
-};
+module.exports = { generateWhatsAppMessage };

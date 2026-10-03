@@ -134,7 +134,7 @@ const getLocationByPincode = async (req, res) => {
  */
 const searchLocations = async (req, res) => {
   try {
-    const { q, limit, offset } = req.query;
+    const { q, limit, offset, serviceableOnly } = req.query;
 
     if (!q) {
       throw generateValidationError('Search query is required');
@@ -142,12 +142,16 @@ const searchLocations = async (req, res) => {
 
     let sql = `
       SELECT * FROM available_pincodes
-      WHERE area LIKE ?
+      WHERE (area LIKE ?
          OR city LIKE ?
          OR state LIKE ?
-         OR pincode LIKE ?
+         OR pincode LIKE ?)
     `;
     const args = [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`];
+
+    if (serviceableOnly === 'true') {
+      sql += ' AND is_serviceable = 1';
+    }
 
     // Add pagination
     if (limit !== undefined) {
@@ -215,24 +219,46 @@ const reverseGeocode = async (req, res) => {
       throw generateValidationError('Longitude must be between -180 and 180 degrees');
     }
 
-    // 1. Try Geoapify Reverse Geocoding API first
+    // 1. Try Geoapify Reverse Geocoding API first. The key is server-side only;
+    // never expose it in the browser bundle.
     let extractedPincode = null;
     try {
-      const apiKey = process.env.GEOAPIFY_API_KEY;
+      const apiKey = String(process.env.GEOAPIFY_API_KEY || '').trim();
       if (apiKey) {
-        const geocodeUrl = `https://api.geoapify.com/v1/geocode/reverse?lat=${latitude}&lon=${longitude}&apiKey=${apiKey}`;
-        const geoResponse = await fetch(geocodeUrl);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 7000);
+        const geocodeUrl = new URL('https://api.geoapify.com/v1/geocode/reverse');
+        geocodeUrl.searchParams.set('lat', String(latitude));
+        geocodeUrl.searchParams.set('lon', String(longitude));
+        geocodeUrl.searchParams.set('apiKey', apiKey);
+        geocodeUrl.searchParams.set('lang', 'en');
+
+        let geoResponse;
+        try {
+          geoResponse = await fetch(geocodeUrl, { signal: controller.signal });
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        if (!geoResponse.ok) {
+          throw new Error(`Geoapify returned HTTP ${geoResponse.status}`);
+        }
         const geoData = await geoResponse.json();
 
-        if (geoData.features && geoData.features.length > 0) {
-          const properties = geoData.features[0].properties;
-          if (properties && properties.postcode) {
-            extractedPincode = properties.postcode;
+        if (Array.isArray(geoData.features)) {
+          for (const feature of geoData.features) {
+            const properties = feature?.properties || {};
+            const postcode = properties.postcode || properties.post_code || properties.postal_code;
+            const normalizedPincode = String(postcode || '').match(/\b\d{6}\b/)?.[0];
+            if (normalizedPincode) {
+              extractedPincode = normalizedPincode;
+              break;
+            }
           }
         }
       }
     } catch (e) {
-      logger.error('Geoapify Geocoding failed, falling back:', e);
+      logger.warn('Geoapify reverse geocoding failed; using database fallback:', e.message);
     }
 
     const db = await getDatabaseConnection('availablePincodes');

@@ -113,7 +113,7 @@ const AdminAnalytics = () => {
     );
   }
 
-  const { summary, series } = data;
+  const { summary, series, importedSales } = data;
 
   const formatINR = (num: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -130,7 +130,7 @@ const AdminAnalytics = () => {
         {/* Lifetime earnings card */}
         <div className="rounded-[1.35rem] bg-white p-5 shadow-[0_12px_34px_rgba(61,33,27,.055)] ring-1 ring-black/[0.04]">
           <div className="flex items-start justify-between">
-            <p className="text-sm font-bold text-muted-foreground">Lifetime earnings</p>
+            <p className="text-sm font-bold text-muted-foreground">Lifetime online-store earnings</p>
           </div>
           <p className="mt-3 text-4xl font-black tracking-[-0.035em]">{formatINR(summary.lifetimeRevenue)}</p>
           <p className="mt-2 text-xs font-bold text-[#267345]">All time</p>
@@ -139,7 +139,7 @@ const AdminAnalytics = () => {
         {/* Selected period revenue card */}
         <div className="rounded-[1.35rem] bg-white p-5 shadow-[0_12px_34px_rgba(61,33,27,.055)] ring-1 ring-black/[0.04]">
           <div className="flex items-start justify-between">
-            <p className="text-sm font-bold text-muted-foreground">{range === 'lifetime' ? 'Lifetime' : range === '12m' ? 'Last 12 months' : range === '6m' ? 'Last 6 months' : 'Last 30 days'} revenue</p>
+            <p className="text-sm font-bold text-muted-foreground">{range === 'lifetime' ? 'Lifetime' : range === '12m' ? 'Last 12 months' : range === '6m' ? 'Last 6 months' : 'Last 30 days'} online-store revenue</p>
           </div>
           <p className="mt-3 text-3xl font-black tracking-[-0.035emil">{formatINR(summary.periodRevenue)}</p>
           <p className="mt-2 text-xs font-bold text-[#267345]">{summary.periodChangePercent >= 0 ? `+${summary.periodChangePercent.toFixed(1)}%` : `${summary.periodChangePercent.toFixed(1)}%`} vs previous period</p>
@@ -148,7 +148,7 @@ const AdminAnalytics = () => {
         {/* Order count card */}
         <div className="rounded-[1.35rem] bg-white p-5 shadow-[0_12px_34px_rgba(61,33,27,.055)] ring-1 ring-black/[0.04]">
           <div className="flex items-start justify-between">
-            <p className="text-sm font-bold text-muted-foreground">Total orders</p>
+            <p className="text-sm font-bold text-muted-foreground">Online-store orders</p>
           </div>
           <p className="mt-3 text-4xl font-black tracking-[-0.035emil">{summary.orderCount.toLocaleString('en-IN')}</p>
           <p className="mt-2 text-xs font-bold text-[#267345]">In selected period</p>
@@ -157,12 +157,34 @@ const AdminAnalytics = () => {
         {/* Average order value card */}
         <div className="rounded-[1.35rem] bg-white p-5 shadow-[0_12px_34px_rgba(61,33,27,.055)] ring-1 ring-black/[0.04]">
           <div className="flex items-start justify-between">
-            <p className="text-sm font-bold text-muted-foreground">Avg. order value</p>
+            <p className="text-sm font-bold text-muted-foreground">Avg. online-store order value</p>
           </div>
           <p className="mt-3 text-3xl font-black tracking-[-0.035emil">{formatINR(summary.averageOrderValue)}</p>
           <p className="mt-2 text-xs font-bold text-[#267345]">Per order</p>
         </div>
       </div>
+
+      <section className="mb-6 rounded-[1.35rem] bg-white p-5 shadow-[0_12px_34px_rgba(61,33,27,.055)] ring-1 ring-black/[0.04]">
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-black">Imported sales report</h2>
+            <p className="text-xs text-muted-foreground">
+              {importedSales?.reportFrom && importedSales?.reportTo
+                ? `Source dates: ${importedSales.reportFrom} to ${importedSales.reportTo}`
+                : "No historical sales report has been imported."}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">Separate from online checkout orders</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="rounded-xl bg-[#FBF9F6] p-4"><p className="text-xs font-bold text-muted-foreground">Active invoices</p><p className="mt-2 text-xl font-black">{Number(importedSales?.invoiceCount || 0).toLocaleString("en-IN")}</p></div>
+          <div className="rounded-xl bg-[#FBF9F6] p-4"><p className="text-xs font-bold text-muted-foreground">Invoiced</p><p className="mt-2 text-xl font-black">{formatINR(Number(importedSales?.invoicedAmount || 0))}</p></div>
+          <div className="rounded-xl bg-[#FBF9F6] p-4"><p className="text-xs font-bold text-muted-foreground">Received</p><p className="mt-2 text-xl font-black">{formatINR(Number(importedSales?.receivedAmount || 0))}</p></div>
+          <div className="rounded-xl bg-[#FBF9F6] p-4"><p className="text-xs font-bold text-muted-foreground">Outstanding</p><p className="mt-2 text-xl font-black">{formatINR(Number(importedSales?.outstandingAmount || 0))}</p></div>
+          <div className="rounded-xl bg-[#FBF9F6] p-4"><p className="text-xs font-bold text-muted-foreground">Cancelled invoices</p><p className="mt-2 text-xl font-black">{Number(importedSales?.cancelledInvoiceCount || 0).toLocaleString("en-IN")}</p></div>
+        </div>
+        <p className="mt-4 text-xs leading-5 text-muted-foreground">Cancelled invoices are excluded from invoiced, received and outstanding amounts. Historical party names are report-only and are not customer login accounts.</p>
+      </section>
 
       <div className="grid gap-6">
         {/* Controls */}
@@ -223,7 +245,9 @@ const AdminAnalytics = () => {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="revenue" stroke="#B4232C" strokeWidth={2} />
+                <Line type="monotone" dataKey="revenue" name="Online store revenue" stroke="#B4232C" strokeWidth={2} />
+                <Line type="monotone" dataKey="importedInvoiced" name="Imported invoices" stroke="#C47A24" strokeWidth={2} />
+                <Line type="monotone" dataKey="importedCollected" name="Collected from report" stroke="#267345" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -251,7 +275,7 @@ const AdminAnalytics = () => {
           Last updated: {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
         </p>
         <p className="text-xs text-muted-foreground">
-          Earnings are calculated from backend-confirmed approved/completed orders. Pending and cancelled orders are excluded. Lifetime totals include historical/archived orders.
+          Online-store earnings include approved, delivered and completed orders; pending and cancelled orders are excluded. Imported invoices are shown separately with collected and outstanding balances; cancelled report invoices are excluded.
         </p>
       </div>
     </AdminShell>

@@ -10,5 +10,6 @@ const styles: Record<OrderStatus, string> = {
 };
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
-  return <span className={`inline-flex rounded-full px-3 py-1.5 text-[0.68rem] font-black ${styles[status]}`}>{status}</span>;
+  const label = status === "New" ? "Pending" : status === "Confirmed" ? "Confirmed (Approved)" : status;
+  return <span className={`inline-flex rounded-full px-3 py-1.5 text-[0.68rem] font-black ${styles[status]}`}>{label}</span>;
 }

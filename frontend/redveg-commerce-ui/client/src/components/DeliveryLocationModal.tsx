@@ -37,6 +37,7 @@ export function DeliveryLocationModal({
   const [geolocationLoading, setGeolocationLoading] = useState(false);
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const searchController = useRef<AbortController | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Reset internal state when dialog opens
@@ -60,6 +61,7 @@ export function DeliveryLocationModal({
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
       }
+      searchController.current?.abort();
     };
   }, []);
 
@@ -72,16 +74,21 @@ export function DeliveryLocationModal({
 
     setLoading(true);
     setError(null);
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
 
     try {
-      const searchResults = await deliveryLocationApi.search(searchQuery);
+      const searchResults = await deliveryLocationApi.search(searchQuery, true, controller.signal);
+      if (controller.signal.aborted) return;
       setResults(searchResults);
       setError(searchResults.length === 0 ? 'No matching locations found' : null);
     } catch (err) {
+      if (controller.signal.aborted) return;
       setError('We couldn\'t search right now. Please try again or choose manually.');
       setResults([]);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
 
@@ -102,7 +109,9 @@ export function DeliveryLocationModal({
           {
             enableHighAccuracy: true,
             timeout: 10000,
-            maximumAge: 300000,
+            // Do not reuse an old position when the user explicitly asks
+            // for their current nearest delivery pincode.
+            maximumAge: 0,
           }
         );
       });
@@ -138,6 +147,8 @@ export function DeliveryLocationModal({
         handleSearch(query);
       }, 300);
     } else if (query.length === 0) {
+      searchController.current?.abort();
+      setLoading(false);
       setResults([]);
       setError(null);
     }
@@ -154,7 +165,7 @@ export function DeliveryLocationModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md mx-auto overflow-hidden">
+      <DialogContent className="mx-auto max-h-[90vh] overflow-y-auto overscroll-contain sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
             <div className="flex items-center gap-3">
@@ -166,7 +177,7 @@ export function DeliveryLocationModal({
 
         <div className="space-y-4">
           {/* Search Input */}
-          <div className="space-y-2">
+          <div className="sticky top-0 z-10 -mx-1 space-y-2 bg-background px-1 pb-2 pt-1">
             <label htmlFor="location-search" className="text-[0.68rem] font-bold text-foreground">
               Search your pincode...
             </label>

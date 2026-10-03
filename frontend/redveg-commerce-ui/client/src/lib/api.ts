@@ -1,6 +1,8 @@
 import { isAdminCacheFallbackEnabled, isAdminMockMode, mockApiFetch } from './adminMockApi';
 
-const API_BASE_URL = 'http://localhost:3005/api/v1';
+// Vite only exposes variables prefixed with VITE_. Keep the local fallback in
+// sync with the backend's PORT default so the app works without extra setup.
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1').replace(/\/+$/, '');
 
 function getApiBaseUrl() {
   return API_BASE_URL;
@@ -18,9 +20,9 @@ export function apiUrl(path: string) {
  * Shared browser API client. Admin endpoints use the HTTP-only session cookie;
  * public endpoints also work with credentials included when CORS is configured.
  */
-export async function apiFetch(path: string, init: RequestInit = {}) {
+export async function apiFetch(path: string, init: RequestInit = {}, options: { forceBackend?: boolean } = {}) {
   const method = String(init.method ?? 'GET').toUpperCase();
-  if (isAdminMockMode()) return mockApiFetch(path, method);
+  if (!options.forceBackend && isAdminMockMode()) return mockApiFetch(path, method);
 
   const headers = new Headers(init.headers);
   const token = typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null;
@@ -35,13 +37,13 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
       headers,
       credentials: init.credentials ?? 'include',
     });
-    if (response.ok && method === 'GET' && isAdminCacheFallbackEnabled()) {
+    if (!options.forceBackend && response.ok && method === 'GET' && isAdminCacheFallbackEnabled()) {
       const cacheKey = `redveg-api-cache:${path}`;
       response.clone().text().then((body) => localStorage.setItem(cacheKey, body)).catch(() => undefined);
     }
     return response;
   } catch (error) {
-    if (method === 'GET' && isAdminCacheFallbackEnabled()) {
+    if (!options.forceBackend && method === 'GET' && isAdminCacheFallbackEnabled()) {
       const cached = localStorage.getItem(`redveg-api-cache:${path}`);
       if (cached) return new Response(cached, { status: 200, headers: { 'Content-Type': 'application/json', 'X-RedVeg-Data-Mode': 'cache' } });
     }

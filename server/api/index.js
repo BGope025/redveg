@@ -19,6 +19,7 @@ const statsRoutes = require('./v1/stats/stats.routes');
 const adminDeliveryLocationsRoutes = require('./v1/admin/delivery-locations/delivery-locations.routes');
 const adminProductsRoutes = require('./v1/admin/products/products.routes');
 const adminVariantsRoutes = require('./v1/admin/variants/variants.routes');
+const couponsRoutes = require('./v1/coupons/coupons.routes');
 
 // Mount all routes
 router.use('/auth', authRoutes);
@@ -31,6 +32,7 @@ router.use('/ui', uiRoutes);
 router.use('/users', usersRoutes);
 router.use('/variants', variantsRoutes);
 router.use('/customers', customersRoutes);
+router.use('/coupons', couponsRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/campaigns', campaignsRoutes);
 router.use('/delivery-locations', deliveryLocationsRoutes);

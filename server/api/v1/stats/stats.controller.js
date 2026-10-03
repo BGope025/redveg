@@ -1,6 +1,9 @@
-﻿const { getDatabaseConnection } = require('../../../config/turso');
+const { getDatabaseConnection } = require('../../../config/turso');
 const { generateNotFoundError, generateValidationError } = require('../../../utils/error-classes');
 const logger = require('../../../utils/logger');
+const { ensureImportedSalesSchema } = require('./imported-sales.schema');
+const { ensureCustomerInvoicePaymentsSchema } = require('../customers/customer-invoice-payments.schema');
+const { createPaymentOverrideMap, getEffectiveInvoice, summarizeImportedInvoices } = require('../../../services/imported-sales-payments.service');
 
 /**
  * Get stats for admin dashboard
@@ -37,7 +40,7 @@ const getStats = async (req, res) => {
           COUNT(*) as order_count,
           COALESCE(SUM(total_amount), 0) as revenue
         FROM orders
-        WHERE status IN ('approved', 'completed')
+        WHERE LOWER(status) IN ('approved', 'completed', 'delivered')
           AND created_at >= ?
           AND created_at < ?
       `,
@@ -51,7 +54,7 @@ const getStats = async (req, res) => {
           COUNT(*) as order_count,
           COALESCE(SUM(total_amount), 0) as revenue
         FROM orders
-        WHERE status IN ('approved', 'completed')
+        WHERE LOWER(status) IN ('approved', 'completed', 'delivered')
           AND created_at >= ?
           AND created_at < ?
       `,
@@ -132,6 +135,8 @@ const getRevenueStats = async (req, res) => {
   try {
     const { range, bucket, from, to } = req.query;
     const ordersDb = await getDatabaseConnection('orders');
+
+    await ensureImportedSalesSchema(ordersDb);
 
     // Validate bucket
     const validBuckets = ['day', 'week', 'month'];
@@ -220,7 +225,7 @@ const getRevenueStats = async (req, res) => {
       COUNT(*) as order_count,
       SUM(total_amount) as revenue
       FROM orders
-      WHERE status IN ('approved', 'completed')
+      WHERE LOWER(status) IN ('approved', 'completed', 'delivered')
     `;
     const args = [];
 
@@ -237,6 +242,77 @@ const getRevenueStats = async (req, res) => {
 
     // Execute query
     const result = await ordersDb.execute({ sql, args });
+
+    // Lifetime earnings are all-time, independent of the selected chart range.
+    // Archived orders remain included so historical records are not lost.
+    const lifetimeResult = await ordersDb.execute({
+      sql: `
+        SELECT COALESCE(SUM(total_amount), 0) AS lifetime_revenue
+        FROM orders
+        WHERE LOWER(status) IN ('approved', 'completed', 'delivered')
+      `,
+      args: [],
+    });
+
+
+    const reportDateFilters = [];
+    const reportDateArgs = [];
+    if (startDate) {
+      reportDateFilters.push('sale_date >= ?');
+      reportDateArgs.push(startDate);
+    }
+    if (endDate) {
+      reportDateFilters.push('sale_date <= ?');
+      reportDateArgs.push(endDate);
+    }
+    const reportDateSql = reportDateFilters.length ? ' AND ' + reportDateFilters.join(' AND ') : '';
+    const reportPeriodSql = bucket === 'day'
+      ? "strftime('%Y-%m-%d', sale_date)"
+      : bucket === 'week'
+        ? "strftime('%Y-%W', sale_date)"
+        : "strftime('%Y-%m', sale_date)";
+    const reportInvoicesResult = await ordersDb.execute({
+      sql: [
+        'SELECT invoice_no, party_key, sale_date, transaction_type, payment_status, total_amount, received_amount, balance_amount,',
+        '  ' + reportPeriodSql + ' AS period',
+        'FROM imported_sales_invoices',
+        'WHERE 1 = 1' + reportDateSql,
+      ].join('\n'),
+      args: reportDateArgs,
+    });
+    const customerDb = await getDatabaseConnection('customer');
+    await ensureCustomerInvoicePaymentsSchema(customerDb);
+    const overrideRowsResult = await customerDb.execute(`SELECT report_party_id, invoice_no, payment_status, received_amount, balance_amount, updated_at, updated_by
+      FROM customer_invoice_payment_overrides`);
+    const overrides = createPaymentOverrideMap(overrideRowsResult.rows);
+    const reportRows = reportInvoicesResult.rows;
+    const reportSummary = summarizeImportedInvoices(reportRows, overrides).overall;
+    const activeReportRows = reportRows.filter((row) => {
+      const invoice = getEffectiveInvoice(row, overrides);
+      return String(row.transaction_type || '').trim().toLowerCase() === 'sale'
+        && String(invoice.effective_payment_status || '').trim().toLowerCase() !== 'cancelled';
+    });
+    const reportDates = activeReportRows.map((row) => String(row.sale_date || '')).filter(Boolean).sort();
+    const reportSummaryResult = { rows: [{
+      invoice_count: reportSummary.invoiceCount,
+      invoiced_amount: reportSummary.invoicedAmount,
+      received_amount: reportSummary.clearedAmount,
+      outstanding_amount: reportSummary.dueAmount,
+      cancelled_invoice_count: reportSummary.cancelledInvoiceCount,
+      report_from: reportDates[0] || null,
+      report_to: reportDates[reportDates.length - 1] || null,
+    }] };
+    const reportPeriods = new Map();
+    for (const row of activeReportRows) {
+      const period = String(row.period || '');
+      if (!period) continue;
+      const invoice = getEffectiveInvoice(row, overrides);
+      const point = reportPeriods.get(period) || { period, imported_invoiced: 0, imported_received: 0 };
+      point.imported_invoiced += Number(row.total_amount) || 0;
+      point.imported_received += Number(invoice.effective_received_amount) || 0;
+      reportPeriods.set(period, point);
+    }
+    const reportSeriesResult = { rows: [...reportPeriods.values()] };
 
     // Format series
     const series = result.rows.map((row) => {
@@ -260,13 +336,47 @@ const getRevenueStats = async (req, res) => {
       };
     });
 
+
+    const reportLabel = (period) => {
+      if (bucket === 'day') return new Date(period).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+      if (bucket === 'week') return 'Week ' + period.split('-')[1] + ' ' + period.split('-')[0];
+      return new Date(period + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    };
+    const chartSeriesByPeriod = new Map(series.map((item) => [item.period, { ...item, importedInvoiced: 0, importedCollected: 0 }]));
+    for (const row of reportSeriesResult.rows) {
+      const period = String(row.period);
+      const point = chartSeriesByPeriod.get(period) || {
+        period,
+        label: reportLabel(period),
+        revenue: 0,
+        orders: 0,
+        importedInvoiced: 0,
+        importedCollected: 0,
+      };
+      point.importedInvoiced = Number.parseFloat(row.imported_invoiced) || 0;
+      point.importedCollected = Number.parseFloat(row.imported_received) || 0;
+      chartSeriesByPeriod.set(period, point);
+    }
+    const chartSeries = [...chartSeriesByPeriod.values()].sort((a, b) => a.period.localeCompare(b.period));
+
     // Determine overall summary for the range
     const totalRevenue = series.reduce((sum, s) => sum + s.revenue, 0);
     const totalOrders = series.reduce((sum, s) => sum + s.orders, 0);
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const lifetimeRevenue = parseFloat(lifetimeResult.rows[0]?.lifetime_revenue) || 0;
+    const importedRow = reportSummaryResult.rows[0] || {};
+    const importedSales = {
+      invoiceCount: Number(importedRow.invoice_count) || 0,
+      invoicedAmount: Number((Number(importedRow.invoiced_amount) || 0).toFixed(2)),
+      receivedAmount: Number((Number(importedRow.received_amount) || 0).toFixed(2)),
+      outstandingAmount: Number((Number(importedRow.outstanding_amount) || 0).toFixed(2)),
+      cancelledInvoiceCount: Number(importedRow.cancelled_invoice_count) || 0,
+      reportFrom: importedRow.report_from || null,
+      reportTo: importedRow.report_to || null,
+    };
 
     const summary = {
-      lifetimeRevenue: Math.round(totalRevenue),
+      lifetimeRevenue: Math.round(lifetimeRevenue),
       periodRevenue: Math.round(totalRevenue),
       orderCount: totalOrders,
       averageOrderValue: Math.round(avgOrderValue),
@@ -287,9 +397,10 @@ const getRevenueStats = async (req, res) => {
         from: startDate || '',
         to: endDate,
         bucket: bucket || 'month',
-        includedStatuses: ['approved', 'completed'],
+        includedStatuses: ['approved', 'completed', 'delivered'],
         summary: summary,
-        series: series,
+        importedSales,
+        series: chartSeries,
       },
     });
   } catch (error) {
