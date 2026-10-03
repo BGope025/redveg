@@ -56,8 +56,8 @@ const getAllProducts = async (req, res) => {
     let categoryFilter = '';
     const args = [];
     if (category && category !== 'all') {
-      categoryFilter += " AND p.category LIKE ?";
-      args.push(category.replace(/-/g, '%'));
+      categoryFilter += " AND LOWER(TRIM(p.category)) = LOWER(TRIM(?))";
+      args.push(category);
     }
 
     if (search) {
@@ -69,7 +69,7 @@ const getAllProducts = async (req, res) => {
     if (sort === 'price-low') {
       sortClause = '(SELECT MIN(price) FROM variants WHERE product_id = p.id) ASC';
     } else if (sort === 'price-high') {
-      sortClause = '(SELECT MIN(price) FROM variants WHERE product_id = p.id) DESC';
+      sortClause = '(SELECT MAX(price) FROM variants WHERE product_id = p.id) DESC';
     } else if (sort === 'rating') {
       sortClause = 'p.rating DESC, p.created_at DESC';
     }
@@ -83,7 +83,7 @@ const getAllProducts = async (req, res) => {
         ORDER BY ${sortClause}
         ${limit ? 'LIMIT ? OFFSET ?' : ''}
       ) p
-      LEFT JOIN variants v ON p.id = v.product_id OR p.id = v.id
+      LEFT JOIN variants v ON p.id = v.product_id
       ORDER BY ${sortClause}
     `;
 
@@ -116,7 +116,7 @@ const getAllProducts = async (req, res) => {
       }
     });
 
-    let products = Array.from(productsMap.values()).map(row => 
+    let products = Array.from(productsMap.values()).map(row =>
       mapProduct(row, variantsMap.get(row.id))
     );
 
@@ -136,51 +136,52 @@ const getAdminProducts = async (req, res) => {
     const search = req.query.q ? req.query.q.trim() : '';
     const limit = parseInt(req.query.limit, 10) || null;
     const offset = parseInt(req.query.offset, 10) || 0;
-    const productArgs = [];
+    const args = [];
     let filterClause = '';
 
     if (search) {
-      filterClause = ' WHERE p.name LIKE ? OR p.description LIKE ?';
-      productArgs.push(`%${search}%`, `%${search}%`);
+      filterClause = ' WHERE (p.name LIKE ? OR p.description LIKE ? OR p.category LIKE ?)';
+      args.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    let productSql = `SELECT p.* FROM products p${filterClause} ORDER BY p.created_at DESC`;
+    let sql = `
+      SELECT p.*,
+        COALESCE(
+          json_group_array(
+            json_object(
+              'id', v.id,
+              'product_id', v.product_id,
+              'sku', v.sku,
+              'size', v.size,
+              'weight', v.weight,
+              'price', v.price,
+              'stock_count', v.stock_count
+            )
+          ) FILTER (WHERE v.id IS NOT NULL),
+          '[]'
+        ) AS variants_json
+      FROM products p
+      LEFT JOIN variants v ON v.product_id = p.id
+      ${filterClause}
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+    `;
     if (limit) {
-      productSql += ' LIMIT ? OFFSET ?';
-      productArgs.push(limit, offset);
+      sql += ' LIMIT ? OFFSET ?';
+      args.push(limit, offset);
     }
 
-    const productResult = await db.execute({ sql: productSql, args: productArgs });
-    const productRows = productResult.rows || [];
-    const productIds = productRows.map((row) => row.id).filter(Boolean);
-    const variantsMap = new Map(productIds.map((id) => [id, []]));
-
-    if (productIds.length > 0) {
-      const placeholders = productIds.map(() => '?').join(', ');
-      const variantResult = await db.execute({
-        sql: `SELECT id, product_id, sku, size, weight, price, stock_count
-              FROM variants
-              WHERE TRIM(product_id) IN (${placeholders}) OR TRIM(id) IN (${placeholders})`,
-        args: [...productIds, ...productIds]
-      });
-
-      for (const row of variantResult.rows || []) {
-        const variantProductId = String(row.product_id || '').trim();
-        const variantId = String(row.id || '').trim();
-        const productId = productIds.includes(variantProductId) ? variantProductId : (productIds.includes(variantId) ? variantId : null);
-        if (!productId) continue;
-        variantsMap.get(productId).push({
-          id: row.id || `${productId}-${row.sku}-${variantsMap.get(productId).length}`,
-          sku: row.sku,
-          size: row.size,
-          weight: row.weight,
-          price: row.price,
-          stock_count: row.stock_count
-        });
+    const result = await db.execute({ sql, args });
+    const products = (result.rows || []).map((row) => {
+      let variants = [];
+      try {
+        variants = typeof row.variants_json === 'string' ? JSON.parse(row.variants_json) : (row.variants_json || []);
+      } catch {
+        variants = [];
       }
-    }
+      return mapProduct(row, variants);
+    });
 
-    const products = productRows.map((row) => mapProduct(row, variantsMap.get(row.id) || []));
     res.status(200).json({ success: true, count: products.length, data: products });
   } catch (error) {
     logger.error('Error fetching admin products:', error);
@@ -258,7 +259,7 @@ const updateProduct = async (req, res) => {
     updates.push('updated_at = CURRENT_TIMESTAMP');
 
     if (updates.length === 1) return res.status(400).json({ success: false, message: 'No fields to update' });
-    
+
     args.push(id);
     await db.execute({ sql: `UPDATE products SET ${updates.join(', ')} WHERE id = ?`, args });
 
@@ -367,5 +368,3 @@ module.exports = {
   updateVariant,
   deleteVariant
 };
-
-

@@ -31,10 +31,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use("/", frontendRouter);
-
-// API routes
+// API routes - MUST come before frontendRouter
 app.use('/api/v1', apiRouter);
+
+// Frontend routes (handles SPA routing)
+app.use("/", frontendRouter);
 
 // Health check endpoint (for Render.com sleep prevention)
 app.get('/api/v1/health/ping', (req, res) => {

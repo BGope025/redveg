@@ -70,18 +70,12 @@ export default function AdminCatalog() {
         searchParams.set("limit", PAGE_SIZE.toString());
         searchParams.set("offset", "0");
 
-        const [response, variantsResponse] = await Promise.all([
-          apiFetch(`admin/products?${searchParams.toString()}`),
-          apiFetch('admin/variants')
-        ]);
+        const response = await apiFetch(`admin/products?${searchParams.toString()}`);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
         const data = await response.json();
         const items = data.data || data;
-        const variantsPayload = variantsResponse.ok ? await variantsResponse.json() : [];
-        const bulkVariants = extractVariantRows(variantsPayload);
-        const productVariants = await loadVariantsPerProduct(Array.isArray(items) ? items : []);
-        const newProducts = mergeProductVariants(Array.isArray(items) ? items : [], [...bulkVariants, ...productVariants]);
+        const newProducts = normalizeAdminProducts(Array.isArray(items) ? items : []);
 
         if (!cancelled) {
           setProducts(newProducts);
@@ -119,7 +113,7 @@ export default function AdminCatalog() {
         
         const data = await response.json();
         const items = data.data || data;
-        const newProducts = Array.isArray(items) ? items : [];
+        const newProducts = normalizeAdminProducts(Array.isArray(items) ? items : []);
 
         if (!cancelled) {
           setProducts(prev => {
@@ -567,57 +561,19 @@ export default function AdminCatalog() {
   );
 }
 
-function extractVariantRows(payload: any) {
-  return Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload?.variants)
-        ? payload.variants
-        : Array.isArray(payload?.data?.variants)
-          ? payload.data.variants
-          : [];
-}
-
-async function loadVariantsPerProduct(products: any[]) {
-  const rows: any[] = [];
-  await Promise.all(products.map(async (product) => {
-    if (!product?.id) return;
-    try {
-      const response = await apiFetch(`variants/products/${encodeURIComponent(product.id)}/variants`);
-      if (!response.ok) return;
-      rows.push(...extractVariantRows(await response.json()));
-    } catch {
-      // The bulk admin endpoint remains the primary source; this is only a compatibility fallback.
-    }
-  }));
-  return rows;
-}
-
-function mergeProductVariants(products: any[], rawVariants: any[]) {
-  const variantsByProduct = new Map<string, any[]>();
-  for (const row of Array.isArray(rawVariants) ? rawVariants : []) {
-    const productId = String(row.product_id || row.productId || row.parent_product_id || '').trim();
-    if (!productId) continue;
-    const variant = {
-      id: row.id || `${productId}-${row.sku || 'variant'}-${variantsByProduct.get(productId)?.length || 0}`,
-      sku: row.sku || '',
-      label: [row.size, row.weight].filter(Boolean).join(' / ') || row.sku || 'Variant',
-      size: row.size || null,
-      weight: row.weight || null,
-      price: Number(row.price ?? 0),
-      stock: Number(row.stock_count ?? row.stockCount ?? row.stock ?? 0),
-      stockCount: Number(row.stock_count ?? row.stockCount ?? row.stock ?? 0),
-      available: Number(row.stock_count ?? row.stockCount ?? row.stock ?? 0) > 0,
-    };
-    const existing = variantsByProduct.get(productId) || [];
-    if (!existing.some((item) => (item.id && item.id === variant.id) || (item.sku && item.sku === variant.sku))) {
-      variantsByProduct.set(productId, [...existing, variant]);
-    }
-  }
+function normalizeAdminProducts(products: any[]) {
   return products.map((product) => ({
     ...product,
-    variants: variantsByProduct.get(String(product.id).trim())?.length ? variantsByProduct.get(String(product.id).trim()) : (product.variants || []),
+    variants: Array.isArray(product?.variants)
+      ? product.variants.map((variant: any) => ({
+          ...variant,
+          label: variant.label || [variant.size, variant.weight].filter(Boolean).join(' / ') || variant.sku || 'Variant',
+          price: Number(variant.price ?? 0),
+          stock: Number(variant.stock ?? variant.stockCount ?? variant.stock_count ?? 0),
+          stockCount: Number(variant.stockCount ?? variant.stock_count ?? variant.stock ?? 0),
+          available: Boolean(variant.available ?? Number(variant.stock ?? variant.stockCount ?? variant.stock_count ?? 0) > 0),
+        }))
+      : [],
   }));
 }
 

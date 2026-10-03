@@ -1,12 +1,17 @@
 import { isAdminCacheFallbackEnabled, isAdminMockMode, mockApiFetch } from './adminMockApi';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '');
+const API_BASE_URL = 'http://localhost:3005/api/v1';
+
+function getApiBaseUrl() {
+  return API_BASE_URL;
+}
 
 export function apiUrl(path: string) {
-  if (!API_BASE_URL) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) {
     throw new Error('VITE_API_URL is not configured');
   }
-  return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
+  return `${apiBaseUrl}/${path.replace(/^\/+/, '')}`;
 }
 
 /**

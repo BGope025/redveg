@@ -40,6 +40,17 @@ CREATE TABLE IF NOT EXISTS ui_settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Delivery locations used by the catalog seed and storefront availability checks
+CREATE TABLE IF NOT EXISTS delivery_locations (
+    pincode TEXT PRIMARY KEY,
+    area TEXT NOT NULL,
+    city TEXT NOT NULL,
+    state TEXT NOT NULL,
+    is_servicealbe INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active);
@@ -47,3 +58,4 @@ CREATE INDEX IF NOT EXISTS idx_variants_product_id ON variants(product_id);
 CREATE INDEX IF NOT EXISTS idx_variants_sku ON variants(sku);
 CREATE INDEX IF NOT EXISTS idx_ui_settings_type ON ui_settings(type);
 CREATE INDEX IF NOT EXISTS idx_ui_settings_active ON ui_settings(is_active);
+CREATE INDEX IF NOT EXISTS idx_delivery_locations_active ON delivery_locations(is_servicealbe);

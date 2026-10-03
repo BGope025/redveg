@@ -10,6 +10,7 @@ export function ProductCard({ product }: { product: Product }) {
   const [variantId, setVariantId] = useState(
     product.variants?.find((variant) => variant.available)?.id ?? product.variants?.[0]?.id ?? ""
   );
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   
   const variant = product.variants?.find((entry) => entry.id === variantId) ?? product.variants?.[0];
   const { addItem } = useCart();
@@ -18,6 +19,7 @@ export function ProductCard({ product }: { product: Product }) {
     if (!variant || !variant.available) return;
     addItem(product.id, variant.id);
     toast.success(`${product.name} added`, { description: `${variant.label} · ₹${variant.price}` });
+    setShowQuickAdd(false);
   };
 
   return (
@@ -26,6 +28,7 @@ export function ProductCard({ product }: { product: Product }) {
         <img src={product.image || 'https://placehold.co/600x400/eee/999?text=No+Image'} alt={product.name} className="size-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" />
         {product.badge && <span className="absolute left-3 top-3 rounded-full bg-[#B4232C] px-3 py-1.5 text-[0.68rem] font-black uppercase tracking-wide text-white shadow-lg">{product.badge}</span>}
         <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-white/92 px-2.5 py-1 text-[0.68rem] font-bold text-[#4F423E] shadow-sm backdrop-blur"><Clock3 className="size-3" /> {product.deliveryMinutes || 45} min</span>
+        {product.variants?.length ? <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setShowQuickAdd(true); }} className="absolute bottom-3 left-3 translate-y-2 rounded-full bg-[#B4232C] px-4 py-2 text-xs font-black text-white opacity-0 shadow-lg transition-all group-hover:translate-y-0 group-hover:opacity-100">Quick add</button> : null}
       </Link>
       <div className="p-4 sm:p-5">
         <div className="flex items-center gap-1 text-xs font-bold text-[#267345]"><Star className="size-3.5 fill-current" /> {product.rating ?? 5.0} <span className="font-medium text-muted-foreground">({product.reviewCount ?? 0})</span></div>
@@ -56,6 +59,21 @@ export function ProductCard({ product }: { product: Product }) {
           <div className="mt-5 text-sm text-red-600 font-bold">Currently unavailable</div>
         )}
       </div>
+      {showQuickAdd && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setShowQuickAdd(false)}>
+          <div role="dialog" aria-modal="true" aria-label={`Add ${product.name} to basket`} className="w-full max-w-md rounded-[1.5rem] bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div><p className="text-xs font-black uppercase tracking-[0.15em] text-[#B4232C]">Quick add</p><h2 className="mt-1 text-2xl font-black">{product.name}</h2></div>
+              <button type="button" onClick={() => setShowQuickAdd(false)} className="rounded-full px-3 py-1 text-2xl leading-none text-muted-foreground hover:bg-[#F6F1EC]" aria-label="Close">×</button>
+            </div>
+            {product.variants?.length ? <>
+              <p className="mt-5 text-sm font-bold text-muted-foreground">Choose a pack size</p>
+              <div className="mt-3 flex flex-wrap gap-2">{product.variants.map((entry) => <button key={entry.id} type="button" onClick={() => setVariantId(entry.id)} disabled={!entry.available} className={`rounded-full border px-4 py-2 text-sm font-bold ${entry.id === variant?.id ? "border-[#B4232C] bg-[#FCE9E8] text-[#B4232C]" : "border-[#E7DDD8]"} disabled:cursor-not-allowed disabled:opacity-40`}>{entry.label} · ₹{entry.price}</button>)}</div>
+              <Button type="button" onClick={add} disabled={!variant?.available} className="mt-6 h-12 w-full rounded-full bg-[#B4232C] font-black text-white hover:bg-[#921B22]">{variant?.available ? `Add to basket · ₹${variant.price}` : "Currently unavailable"}</Button>
+            </> : <p className="mt-5 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">This product is currently unavailable.</p>}
+          </div>
+        </div>
+      )}
     </article>
   );
 }

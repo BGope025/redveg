@@ -169,7 +169,7 @@ export default function ShopPage() {
             )}
           </>
         ) : (
-          <div className="mt-10 rounded-[1.5rem] border border-dashed border-black/15 bg-white px-6 py-16 text-center"><Search className="mx-auto size-7 text-muted-foreground" /><h3 className="mt-4 font-black">No matching fresh cuts</h3><p className="mt-2 text-sm text-muted-foreground">Try another category or a simpler search term.</p></div>
+          <div className="mt-10 rounded-[1.5rem] border border-dashed border-black/15 bg-white px-6 py-16 text-center"><Search className="mx-auto size-7 text-muted-foreground" /><h3 className="mt-4 font-black">{category !== "all" ? "No products found in this category" : "No matching fresh cuts"}</h3><p className="mt-2 text-sm text-muted-foreground">{category !== "all" ? "Try another category or check back soon." : "Try another category or a simpler search term."}</p></div>
         )}
       </section>
     </StoreShell>

@@ -455,7 +455,7 @@ const resolveActiveCampaign = async (req, res) => {
       args.push(device);
     }
 
-    sql += ` ORDER BY priority DESC, updated_at DESC LIMIT 1`;
+    sql += ` ORDER BY priority DESC, updatedAt DESC LIMIT 1`;
 
     const result = await db.execute({ sql, args });
 

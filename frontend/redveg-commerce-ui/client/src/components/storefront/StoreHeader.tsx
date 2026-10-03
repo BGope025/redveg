@@ -13,15 +13,6 @@ import { toast } from 'sonner';
 import { Link, useLocation as useRouterLocation, useLocation as wouterUseLocation } from 'wouter';
 import type { DeliveryLocation } from '@/contexts/LocationContext';
 
-const navItems = [
-  ['Chicken', 'chicken'],
-  ['Mutton', 'mutton'],
-  ['Fish', 'fish'],
-  ['Prawns', 'prawns'],
-  ['Crabs & Seafood', 'crabs-seafood'],
-  ['Combos', 'combos'],
-  ['Offers', 'offers'],
-] as const;
 
 export function StoreHeader() {
   const { itemCount } = useCart();
@@ -285,32 +276,6 @@ export function StoreHeader() {
             </form>
           </div>
 
-          {/* Category navigation */}
-          <nav style={{ borderTop: `1px solid ${p.borderColor}` }} aria-label="Product categories">
-            <div className="container flex items-center gap-1 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:justify-center lg:gap-3">
-              {navItems.map(([label, category]) => (
-                <Link
-                  key={category}
-                  href={`/shop?category=${category}`}
-                  className="shrink-0 rounded-full px-4 py-2 text-sm font-bold transition-colors"
-                  style={{
-                    color: p.navText,
-                    // CSS can't do hover via inline styles, so we rely on a CSS class below
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.backgroundColor = p.navHoverBg;
-                    (e.currentTarget as HTMLElement).style.color = p.navHoverText;
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
-                    (e.currentTarget as HTMLElement).style.color = p.navText;
-                  }}
-                >
-                  {label}
-                </Link>
-              ))}
-            </div>
-          </nav>
 
           {/* Campaign Strip at Bottom of Header */}
           {activeCampaign && (activeCampaign.placement === 'header_strip' || activeCampaign.placement === 'both') ? (

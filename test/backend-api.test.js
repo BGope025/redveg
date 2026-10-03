@@ -85,18 +85,19 @@ test('delivery area availability update validates input and writes the database 
   assert.match(statements[0], /is_serviceable/);
 });
 
-test('admin products endpoint merges direct variants rows by product_id', async () => {
+test('admin products endpoint returns joined variants with weight, price, and stock', async () => {
   const statements = [];
   currentDb = { execute: async (statement) => {
     const sql = typeof statement === 'string' ? statement : statement.sql;
     statements.push(sql);
-    if (sql.includes('FROM products')) return { rows: [{ id: 'P3', name: 'Hilsa', is_active: 1, category: 'fish' }] };
-    return { rows: [{ id: 'V3', product_id: 'P3', sku: 'HILSA-1KG', size: 'Standard', weight: '1 kg', price: 1599, stock_count: 8 }] };
+    if (sql.includes('LEFT JOIN variants')) return { rows: [{ id: 'P3', name: 'Hilsa', is_active: 1, category: 'fish', variants_json: JSON.stringify([{ id: 'V3', product_id: 'P3', sku: 'HILSA-1KG', size: 'Standard', weight: '1 kg', price: 1599, stock_count: 8 }]) }] };
+    return { rows: [] };
   } };
   const res = response();
   await productsController.getAdminProducts(request({ limit: '8', offset: '0' }), res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data[0].variants[0].weight, '1 kg');
   assert.equal(res.body.data[0].variants[0].stock, 8);
-  assert.match(statements[1], /FROM variants/);
+  assert.match(statements[0], /LEFT JOIN variants/);
+  assert.match(statements[0], /json_group_array/);
 });
