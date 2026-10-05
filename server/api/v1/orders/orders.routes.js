@@ -14,7 +14,7 @@ const {
   deleteOrder
 } = require('./orders.controller');
 
-// Public guest checkout; the controller validates the supplied delivery details.
+// Public checkout; the controller validates the supplied delivery details.
 router.post('/checkout', createOrder);
 
 // Protected routes

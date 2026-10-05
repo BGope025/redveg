@@ -2,6 +2,7 @@ import { ProductCard } from "@/components/storefront/ProductCard";
 import { StoreShell } from "@/components/storefront/StoreShell";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/contexts/CartContext";
+import { useLocation } from "@/contexts/LocationContext";
 import { BadgeCheck, ChevronLeft, Clock3, MapPin, Minus, Plus, ShieldCheck, Star, ThermometerSnowflake } from "lucide-react";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ export default function ProductPage() {
   const [quantity, setQuantity] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { location } = useLocation();
 
   useEffect(() => {
     const fetchProductData = async () => {
@@ -107,7 +109,15 @@ export default function ProductPage() {
   }
 
   const variant = product.variants?.find((entry) => entry.id === variantId) ?? product.variants?.[0] ?? null;
+  const stockRemaining = Number(variant?.stock ?? 0);
+  const isLowStock = Boolean(variant?.available && stockRemaining > 0 && stockRemaining <= 9);
   const { addItem } = useCart();
+  const deliveryAddress = location ? `${location.area}, ${location.city} ${location.pincode}` : null;
+  const deliveryMessage = !location
+    ? "Choose a delivery location to check availability."
+    : location.isServiceable === false
+      ? `Delivery is currently unavailable to ${deliveryAddress}.`
+      : `Delivery available to ${deliveryAddress} today.`;
 
   const add = () => {
     if (!variant) {
@@ -123,7 +133,7 @@ export default function ProductPage() {
       <div className="container py-6 sm:py-10">
         <Link href="/shop" className="inline-flex items-center gap-2 text-sm font-bold text-muted-foreground transition hover:text-[#B4232C]"><ChevronLeft className="size-4" /> Back to fresh cuts</Link>
         <div className="mt-6 grid gap-8 lg:grid-cols-[1.05fr_.95fr] lg:gap-14">
-          <div className="overflow-hidden rounded-[2rem] bg-[#F5EFE9] shadow-[0_20px_55px_rgba(61,33,27,.08)]"><img src={product.image} alt={product.name} className="aspect-[4/3] size-full object-cover" /></div>
+          <div className="relative overflow-hidden rounded-[2rem] bg-[#F5EFE9] shadow-[0_20px_55px_rgba(61,33,27,.08)]"><img src={product.image} alt={product.name} className="aspect-[4/3] size-full object-contain p-5" /></div>
           <div className="flex flex-col justify-center">
             {product.badge && <span className="w-fit rounded-full bg-[#FCE8E7] px-3 py-1.5 text-xs font-black uppercase tracking-wide text-[#B4232C]">{product.badge}</span>}
             <h1 className="mt-4 font-display text-4xl font-black tracking-[-0.045em] sm:text-5xl">{product.name}</h1>
@@ -131,9 +141,10 @@ export default function ProductPage() {
             <div className="mt-4 flex flex-wrap items-center gap-4 text-sm"><span className="flex items-center gap-1 font-black text-[#267345]"><Star className="size-4 fill-current" /> {product.rating}</span><span className="text-muted-foreground">{product.reviewCount} verified reviews</span><span className="flex items-center gap-1.5 font-bold"><Clock3 className="size-4 text-[#B4232C]" /> Delivery in {product.deliveryMinutes} min</span></div>
             <p className="mt-7 max-w-xl text-sm leading-7 text-[#655955]">{product.description}</p>
             <div className="mt-8"><p className="text-xs font-black uppercase tracking-[0.15em] text-muted-foreground">Choose pack size</p><div className="mt-3 flex flex-wrap gap-3">{product.variants?.length ? product.variants.map((entry) => <button key={entry.id} disabled={!entry.available} onClick={() => setVariantId(entry.id)} className={`min-w-28 rounded-2xl border p-3 text-left transition ${entry.id === variantId ? "border-[#B4232C] bg-[#FCE9E8] shadow-[0_0_0_3px_rgba(180,35,44,.08)]" : "border-[#E2D8D2] bg-white hover:border-[#B4232C]/40"} disabled:cursor-not-allowed disabled:opacity-40`}><span className="block text-sm font-black">{entry.label}</span><span className="mt-1 block text-xs text-muted-foreground">{entry.available ? `₹${entry.price}` : "Unavailable"}</span></button>) : <p className="text-sm font-bold text-red-600">Currently unavailable</p>}</div></div>
+            {isLowStock && <p className="mt-3 text-sm font-black text-[#B4232C]">Only {stockRemaining} left in stock — order soon</p>}
             <div className="mt-7 flex items-center gap-4"><div><p className="text-3xl font-black tracking-tight">₹{variant ? variant.price * quantity : 0}</p>{variant?.mrp && <p className="mt-1 text-xs text-muted-foreground"><span className="line-through">₹{variant.mrp * quantity}</span> · You save ₹{(variant.mrp - variant.price) * quantity}</p>}</div><div className="ml-auto flex h-12 items-center rounded-full border border-[#E2D8D2] bg-white p-1"><button onClick={() => setQuantity((current) => Math.max(1, current - 1))} className="grid size-9 place-items-center rounded-full hover:bg-[#F6F1EC]" aria-label="Decrease quantity"><Minus className="size-4" /></button><span className="w-8 text-center text-sm font-black">{quantity}</span><button onClick={() => setQuantity((current) => Math.min(10, current + 1))} className="grid size-9 place-items-center rounded-full hover:bg-[#F6F1EC]" aria-label="Increase quantity"><Plus className="size-4" /></button></div></div>
             <Button onClick={add} disabled={!variant?.available} className="mt-6 h-14 rounded-full bg-[#B4232C] text-base font-black text-white shadow-[0_14px_32px_rgba(180,35,44,.22)] hover:bg-[#951D24]">{variant ? `Add to basket · ₹${variant.price * quantity}` : "Currently unavailable"}</Button>
-            <div className="mt-5 flex items-center gap-3 rounded-2xl bg-[#EAF4E8] p-4 text-sm text-[#275F3C]"><MapPin className="size-5 shrink-0" /><span><strong>Delivery available</strong> to Dumdum Cantonment 700065 today.</span></div>
+            <div className={`mt-5 flex items-center gap-3 rounded-2xl p-4 text-sm ${location?.isServiceable === false ? "bg-[#FCE8E7] text-[#8F1D25]" : "bg-[#EAF4E8] text-[#275F3C]"}`}><MapPin className="size-5 shrink-0" /><span>{location?.isServiceable === false ? <strong>Delivery unavailable</strong> : location ? <strong>Delivery available</strong> : <strong>Delivery location</strong>} {deliveryMessage.replace(/^(Delivery available|Delivery is currently unavailable)\s*/, "")}</span></div>
             <div className="mt-5 grid grid-cols-2 gap-3 text-xs font-bold text-muted-foreground sm:grid-cols-3"><span className="flex items-center gap-2"><ThermometerSnowflake className="size-4 text-[#267345]" /> Temperature controlled</span><span className="flex items-center gap-2"><ShieldCheck className="size-4 text-[#267345]" /> Hygienically packed</span><span className="flex items-center gap-2"><BadgeCheck className="size-4 text-[#267345]" /> Quality checked</span></div>
           </div>
         </div>

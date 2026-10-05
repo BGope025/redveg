@@ -11,6 +11,7 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState<any[]>([]);
   const [stats, setStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const pendingOrders = orders.filter((order) => order.status === "New");
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -34,7 +35,9 @@ export default function AdminDashboard() {
         }
 
         // Fetch stats
-        const statsResponse = await apiFetch('stats');
+        // Dashboard KPIs must always come from the backend database, even when
+        // the rest of the admin UI is configured to use preview/mock data.
+        const statsResponse = await apiFetch('stats', {}, { forceBackend: true });
         if (statsResponse.ok) {
           let statsData = await statsResponse.json();
           statsData = statsData.data || statsData;
@@ -93,9 +96,9 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between border-b border-black/5 px-5 py-5 sm:px-6">
             <div>
               <h2 className="text-lg font-black">Orders needing action</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Newest orders and live fulfilment status</p>
+              <p className="mt-1 text-xs text-muted-foreground">Customer details for orders waiting for confirmation</p>
             </div>
-            <Link href="/admin/orders" className="flex items-center gap-1 text-xs font-black text-[#B4232C]">
+            <Link href="/admin/orders?status=pending" className="flex items-center gap-1 text-xs font-black text-[#B4232C]">
               View all <ChevronRight className="size-4" />
             </Link>
           </div>
@@ -112,27 +115,31 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {orders
-                  .slice(0, 4) // Show only first 4 orders
+                {pendingOrders
+                  .slice(0, 4)
                   .map((order) => (
                     <tr key={order.id} className="border-b border-black/5 last:border-0">
                       <td className="px-6 py-4 font-black">{order.id}</td>
                       <td className="px-4 py-4">
                         <p className="text-sm font-bold">{order.customer}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {order.itemCount} item{order.itemCount > 1 ? "s" : ""} · {order.pincode}
+                          {order.mobile || "No phone provided"}
                         </p>
+                        <p className="mt-1 max-w-[220px] truncate text-xs text-muted-foreground" title={order.address}>{order.address || order.pincode || "No address provided"}</p>
                       </td>
                       <td className="px-4 py-4 text-xs font-semibold text-muted-foreground">{order.placedAt}</td>
                       <td className="px-4 py-4 text-sm font-black">₹{order.total.toLocaleString("en-IN")}</td>
                       <td className="px-4 py-4"><OrderStatusBadge status={order.status} /></td>
                       <td className="px-6 py-4">
-                        <Link href="/admin/orders" className="grid size-8 place-items-center rounded-full bg-[#F5F2EE]">
+                        <Link href={`/admin/orders?status=pending&order=${encodeURIComponent(order.id)}`} className="grid size-8 place-items-center rounded-full bg-[#F5F2EE]" aria-label={`Review pending order ${order.id}`}>
                           <ArrowRight className="size-4" />
                         </Link>
                       </td>
                     </tr>
                   ))}
+                {!pendingOrders.length && (
+                  <tr><td colSpan={6} className="px-6 py-12 text-center text-sm text-muted-foreground">No orders are waiting for confirmation.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -190,6 +197,8 @@ function normalizeDashboardOrder(raw: any) {
   return {
     ...raw,
     customer: raw.customer_name || raw.customer || "Customer",
+    mobile: raw.customer_phone || raw.mobile || "",
+    address: raw.customer_address || raw.address || "",
     itemCount: raw.itemCount ?? items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0),
     pincode: raw.pincode || "",
     placedAt: raw.placedAt || raw.created_at || raw.order_date || "",

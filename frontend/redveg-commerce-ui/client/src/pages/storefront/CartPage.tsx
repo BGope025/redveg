@@ -2,10 +2,11 @@ import { StoreShell } from "@/components/storefront/StoreShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCart } from "@/contexts/CartContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/lib/api";
 import { AlertCircle, ArrowRight, Check, Loader2, Minus, Plus, ShieldCheck, ShoppingBag, Tag, Trash2, Truck, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 type ActiveCoupon = {
   code: string;
@@ -27,6 +28,8 @@ function couponOffer(coupon: ActiveCoupon) {
 }
 
 export default function CartPage() {
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const [, setLocation] = useLocation();
   const {
     items, resolvedItems, subtotal, deliveryFee, total, updateQuantity, removeItem,
     couponCode, couponQuote, couponValidationLoading, couponValidationError, setCouponCode, clearCoupon,
@@ -63,6 +66,15 @@ export default function CartPage() {
     setCouponCode(code);
   };
 
+  const continueToCheckout = () => {
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      setLocation(`/login?returnTo=${encodeURIComponent("/checkout")}`);
+      return;
+    }
+    setLocation("/checkout");
+  };
+
   if (!resolvedItems.length) {
     return <StoreShell><div className="container py-20 sm:py-28"><div className="mx-auto max-w-lg rounded-[2rem] bg-white p-8 text-center shadow-[0_20px_60px_rgba(61,33,27,.08)] sm:p-12"><span className="mx-auto grid size-16 place-items-center rounded-full bg-[#F8E7E5] text-[#B4232C]"><ShoppingBag className="size-7" /></span><h1 className="mt-6 font-display text-3xl font-black">Your basket is waiting</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">Choose from today’s fresh chicken, mutton, fish and seafood cuts.</p><Link href="/shop" className="mt-7 inline-flex h-12 items-center gap-2 rounded-full bg-[#B4232C] px-6 text-sm font-black text-white">Explore fresh cuts <ArrowRight className="size-4" /></Link></div></div></StoreShell>;
   }
@@ -94,7 +106,7 @@ export default function CartPage() {
             <div className="mt-6 space-y-3 text-sm"><SummaryRow label="Subtotal" value={`₹${money(displaySubtotal)}`} /><SummaryRow label="Delivery" value={displayDeliveryFee ? `₹${money(displayDeliveryFee)}` : "FREE"} green={!displayDeliveryFee} />{quoteIsCurrent && <SummaryRow label={`Coupon discount (${couponQuote!.coupon.code})`} value={`−₹${money(discount)}`} green />}</div>
             <div className="my-5 border-t border-dashed border-black/15" />
             <div className="flex items-end justify-between"><div><p className="font-black">Total</p><p className="mt-1 text-xs text-muted-foreground">Prices confirmed again at checkout</p></div><p className="text-2xl font-black">₹{money(displayTotal)}</p></div>
-            <Link href="/checkout" className="mt-6 flex h-13 items-center justify-center gap-2 rounded-full bg-[#B4232C] text-sm font-black text-white shadow-[0_12px_28px_rgba(180,35,44,.2)]">Continue to checkout <ArrowRight className="size-4" /></Link>
+            <button type="button" onClick={continueToCheckout} disabled={authLoading} className="mt-6 flex h-13 w-full items-center justify-center gap-2 rounded-full bg-[#B4232C] text-sm font-black text-white shadow-[0_12px_28px_rgba(180,35,44,.2)] disabled:cursor-wait disabled:opacity-60">{authLoading ? "Checking account…" : "Continue to checkout"} <ArrowRight className="size-4" /></button>
             <p className="mt-4 flex items-center justify-center gap-2 text-center text-xs text-muted-foreground"><ShieldCheck className="size-4 text-[#267345]" /> Discount and stock are revalidated before saving</p>
           </aside>
         </div>

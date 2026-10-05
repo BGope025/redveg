@@ -30,16 +30,15 @@ export interface AuthContextValue {
   sendPhoneOtp: (phoneNumber: string) => Promise<void>;
   verifyPhoneOtp: (otp: string) => Promise<void>;
   signOutUser: () => Promise<void>;
+  signOutAdmin: () => Promise<void>;
   login: (credentials: { email: string; password: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Simple admin email list — in production this would come from backend
-const ADMIN_EMAILS = ["admin@redveg.com"];
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [adminAuthenticated, setAdminAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
@@ -77,28 +76,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const result = await signInWithPopup(auth, googleProvider);
 
-      // Get the ID token from Firebase
-      const idToken = await result.user.getIdToken();
-
-      // Send token to backend to establish admin session
-      const response = await fetch(apiUrl('auth/oauth/google'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({ idToken })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Backend authentication failed');
-      }
-      
-      const data = await response.json();
-      if (data.data?.token) {
-        localStorage.setItem('adminToken', data.data.token);
-      }
     } catch (error) {
       console.error("Error signing in with Google:", error);
       throw error;
@@ -162,13 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (data.data.token) {
           localStorage.setItem('adminToken', data.data.token);
         }
-        setUser({
-          uid: data.data.user.id.toString(),
-          email: data.data.user.username,
-          phoneNumber: null,
-          displayName: data.data.user.username,
-          photoURL: null,
-        });
+        setAdminAuthenticated(true);
       } else {
         throw new Error('Invalid response from server');
       }
@@ -178,23 +149,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Sign out user
+  // Customer sign-out is Firebase-only. It must not touch the admin token/session.
   const signOutUser = async () => {
-    try {
-      if (auth) {
-        await auth.signOut();
-      }
-      localStorage.removeItem('adminToken');
-      setUser(null);
-      setConfirmationResult(null);
-    } catch (error) {
-      console.error("Error signing out:", error);
-      throw error;
-    }
+    if (auth) await auth.signOut();
+    setConfirmationResult(null);
+  };
+
+  // Admin sign-out is backend-token based. It must not sign out Firebase customers.
+  const signOutAdmin = async () => {
+    await fetch(apiUrl('auth/logout'), {
+      method: 'POST',
+      credentials: 'include'
+    }).catch(() => undefined);
+    localStorage.removeItem('adminToken');
+    setAdminAuthenticated(false);
   };
 
   const isAuthenticated = !!user;
-  const isAdmin = !!user && ADMIN_EMAILS.includes(user.email ?? "");
+  const isAdmin = adminAuthenticated;
 
   const value: AuthContextValue = {
     user,
@@ -207,6 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sendPhoneOtp,
     verifyPhoneOtp,
     signOutUser,
+    signOutAdmin,
     login,
   };
 

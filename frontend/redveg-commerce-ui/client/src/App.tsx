@@ -24,11 +24,12 @@ const AdminCatalog = lazy(() => import("@/pages/admin/AdminCatalog"));
 const AdminOffers = lazy(() => import("@/pages/admin/AdminOffers"));
 const AdminCoupons = lazy(() => import("@/pages/admin/AdminCoupons"));
 const AdminCustomers = lazy(() => import("@/pages/admin/AdminCustomers"));
-const AdminModule = lazy(() => import("@/pages/admin/AdminModule"));
 const AdminAnalytics = lazy(() => import("@/pages/admin/AdminAnalytics"));
+const AdminModule = lazy(() => import("@/pages/admin/AdminModule"));
 const AdminHeaderTheme = lazy(() => import("@/pages/admin/AdminHeaderTheme"));
 const AdminCampaignForm = lazy(() => import("@/pages/admin/AdminCampaignForm"));
 const AdminDeliveryAreas = lazy(() => import("@/pages/admin/AdminDeliveryAreas"));
+const AdminLoginPage = lazy(() => import("@/pages/admin/AdminLoginPage"));
 
 function ScrollToTop() {
   const [location] = useLocation();
@@ -55,6 +56,7 @@ function Router() {
           <Route path="/cart" component={CartPage} />
           <Route path="/checkout" component={CheckoutPage} />
           <Route path="/login" component={LoginPage} />
+          <Route path="/admin/login" component={AdminLoginPage} />
           <Route path="/404" component={NotFound} />
 
           {/* PROTECTED ADMIN ROUTES */}
@@ -93,14 +95,14 @@ function Router() {
               <AdminCustomers />
             </ProtectedRoute>
           )} />
-          <Route path="/admin/analytics" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminAnalytics />
-            </ProtectedRoute>
-          )} />
           <Route path="/admin/settings" component={() => (
             <ProtectedRoute adminOnly>
               <AdminModule />
+            </ProtectedRoute>
+          )} />
+          <Route path="/admin/analytics" component={() => (
+            <ProtectedRoute adminOnly>
+              <AdminAnalytics />
             </ProtectedRoute>
           )} />
           <Route path="/admin/header-theme" component={() => (

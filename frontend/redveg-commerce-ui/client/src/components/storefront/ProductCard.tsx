@@ -1,19 +1,29 @@
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/contexts/CartContext";
+import { brandedCatalogImage } from "@/lib/catalogImages";
 import type { Product } from "@/types/commerce";
 import { Clock3, Plus, Star } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
 export function ProductCard({ product }: { product: Product }) {
+  const placeholderImage = 'https://placehold.co/600x400/eee/999?text=No+Image';
+  const brandedFallback = brandedCatalogImage(product.name) ?? placeholderImage;
+  const [imageSrc, setImageSrc] = useState(product.image || brandedFallback);
   const [variantId, setVariantId] = useState(
     product.variants?.find((variant) => variant.available)?.id ?? product.variants?.[0]?.id ?? ""
   );
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   
   const variant = product.variants?.find((entry) => entry.id === variantId) ?? product.variants?.[0];
+  const stockRemaining = Number(variant?.stock ?? 0);
+  const isLowStock = Boolean(variant?.available && stockRemaining > 0 && stockRemaining <= 9);
   const { addItem } = useCart();
+
+  useEffect(() => {
+    setImageSrc(product.image || brandedFallback);
+  }, [brandedFallback, product.id, product.image]);
 
   const add = () => {
     if (!variant || !variant.available) return;
@@ -25,7 +35,12 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <article className="group overflow-hidden rounded-[1.4rem] bg-white shadow-[0_14px_40px_rgba(75,41,33,0.08)] ring-1 ring-black/[0.045] transition duration-200 hover:-translate-y-1 hover:shadow-[0_20px_50px_rgba(75,41,33,0.13)]">
       <Link href={`/product/${product.slug}`} className="relative block aspect-[4/3] overflow-hidden bg-[#F5EFE9]">
-        <img src={product.image || 'https://placehold.co/600x400/eee/999?text=No+Image'} alt={product.name} className="size-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]" />
+        <img
+          src={imageSrc}
+          alt={product.name}
+          onError={() => setImageSrc((current) => current === brandedFallback ? placeholderImage : brandedFallback)}
+          className="size-full object-contain p-3 transition-transform duration-500 ease-out group-hover:scale-[1.02]"
+        />
         {product.badge && <span className="absolute left-3 top-3 rounded-full bg-[#B4232C] px-3 py-1.5 text-[0.68rem] font-black uppercase tracking-wide text-white shadow-lg">{product.badge}</span>}
         <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-white/92 px-2.5 py-1 text-[0.68rem] font-bold text-[#4F423E] shadow-sm backdrop-blur"><Clock3 className="size-3" /> {product.deliveryMinutes || 45} min</span>
         {product.variants?.length ? <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); setShowQuickAdd(true); }} className="absolute bottom-3 left-3 translate-y-2 rounded-full bg-[#B4232C] px-4 py-2 text-xs font-black text-white opacity-0 shadow-lg transition-all group-hover:translate-y-0 group-hover:opacity-100">Quick add</button> : null}
@@ -44,6 +59,7 @@ export function ProductCard({ product }: { product: Product }) {
                 </button>
               ))}
             </div>
+            {isLowStock && <p className="mt-2 text-xs font-black text-[#B4232C]">Only {stockRemaining} left in stock — order soon</p>}
 
             <div className="mt-5 flex items-end justify-between gap-3">
               <div>

@@ -1,7 +1,11 @@
-﻿import type { Campaign, CampaignStatus, CampaignOccasion, CampaignPlacement } from '@/types/commerce';
+import type { Campaign, CampaignStatus, CampaignOccasion, CampaignPlacement } from '@/types/commerce';
 import { apiFetch } from '@/lib/api';
 
-const API_URL = import.meta.env.VITE_API_URL;
+// Campaign management always uses the real catalog backend; preview/mock mode
+// must not create or display fake campaign records here.
+const liveCampaignFetch = (path: string, init: RequestInit = {}) =>
+  apiFetch(path, init, { forceBackend: true });
+
 
 // Helper to handle fetch responses
 async function handleFetchResponse(response: Response) {
@@ -53,9 +57,7 @@ export const campaignApi = {
       }
 
       const query = params.toString();
-      const url = `${API_URL}/campaigns${query ? `?${query}` : ''}`;
-
-      const response = await apiFetch(url.replace(`${API_URL}/`, ''), {
+      const response = await liveCampaignFetch(`campaigns${query ? `?${query}` : ''}`, {
         credentials: 'include', // include cookies for auth
         headers: {
           'Content-Type': 'application/json',
@@ -77,8 +79,7 @@ export const campaignApi = {
 
   getCampaignById: async (id: string): Promise<Campaign | null> => {
     try {
-      const url = `${API_URL}/campaigns/${encodeURIComponent(id)}`;
-      const response = await apiFetch(url.replace(`${API_URL}/`, ''), {
+      const response = await liveCampaignFetch(`campaigns/${encodeURIComponent(id)}`, {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
@@ -102,8 +103,7 @@ export const campaignApi = {
 
   createCampaign: async (campaignData: Omit<Campaign, 'id' | 'createdAt' | 'updatedAt' | 'publishedAt' | 'archivedAt'>): Promise<Campaign> => {
     try {
-      const url = `${API_URL}/campaigns`;
-      const response = await apiFetch(url.replace(`${API_URL}/`, ''), {
+      const response = await liveCampaignFetch('campaigns', {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -125,8 +125,7 @@ export const campaignApi = {
 
   updateCampaign: async (id: string, campaignData: Partial<Campaign>): Promise<Campaign | null> => {
     try {
-      const url = `${API_URL}/campaigns/${encodeURIComponent(id)}`;
-      const response = await apiFetch(url.replace(`${API_URL}/`, ''), {
+      const response = await liveCampaignFetch(`campaigns/${encodeURIComponent(id)}`, {
         method: 'PUT',
         credentials: 'include',
         headers: {
@@ -152,8 +151,7 @@ export const campaignApi = {
 
   deleteCampaign: async (id: string): Promise<boolean> => {
     try {
-      const url = `${API_URL}/campaigns/${encodeURIComponent(id)}`;
-      const response = await apiFetch(url.replace(`${API_URL}/`, ''), {
+      const response = await liveCampaignFetch(`campaigns/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         credentials: 'include',
         headers: {
@@ -197,9 +195,7 @@ export const campaignApi = {
       }
 
       const query = params.toString();
-      const url = `${API_URL}/campaigns/active${query ? `?${query}` : ''}`;
-
-      const response = await apiFetch(url.replace(`${API_URL}/`, ''), {
+      const response = await liveCampaignFetch(`campaigns/active${query ? `?${query}` : ''}`, {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',

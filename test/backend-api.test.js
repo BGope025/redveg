@@ -49,6 +49,21 @@ test('products endpoint maps database variant size, weight, price, and stock_cou
   assert.match(queries[0], /stock_count/);
 });
 
+test('products endpoint matches category slugs to display-name catalog categories', async () => {
+  queries.length = 0;
+  let statement;
+  currentDb = { execute: async (nextStatement) => {
+    statement = nextStatement;
+    queries.push(nextStatement.sql);
+    return { rows: [] };
+  } };
+  const res = response();
+  await productsController.getAllProducts(request({ category: 'deshi-fish', limit: '50' }), res);
+  assert.equal(res.statusCode, 200);
+  assert.match(queries[0], /REPLACE\(TRIM\(p\.category\), ' ', '-'\)/);
+  assert.deepEqual(statement.args, ['deshi-fish', 'deshi-fish', 'deshi-fish', 50, 0]);
+});
+
 test('revenue reports query created_at and return a normalized series', async () => {
   queries.length = 0;
   const statements = [];
@@ -76,6 +91,26 @@ test('revenue reports query created_at and return a normalized series', async ()
   assert.match(orderSeriesStatement.sql, /LOWER\(status\) IN \('approved', 'completed', 'delivered'\)/);
   const lifetimeStatement = statements.find((statement) => typeof statement !== 'string' && statement.sql.includes('AS lifetime_revenue'));
   assert.deepEqual(lifetimeStatement.args, []);
+});
+
+test('stats endpoint passes explicit empty args to parameterless libsql statements', async () => {
+  const statements = [];
+  currentDb = { execute: async (statement) => {
+    statements.push(statement);
+    const sql = typeof statement === 'string' ? statement : statement.sql;
+    if (sql.includes(' as start')) return { rows: [{ start: '2026-10-05 18:30:00' }] };
+    if (sql.includes(' as end')) return { rows: [{ end: '2026-10-06 18:30:00' }] };
+    if (sql.includes('pending_count')) return { rows: [{ pending_count: 2 }] };
+    return { rows: [{ order_count: 3, revenue: 2100 }] };
+  } };
+
+  const res = response();
+  await statsController.getStats(request(), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body[0].value, '3');
+  assert.equal(res.body[3].value, '2');
+  assert.ok(statements.slice(0, 4).every((statement) => Array.isArray(statement.args)));
 });
 
 test('lifetime earnings remain all-time when the analytics chart is filtered to the last 30 days', async () => {
@@ -474,6 +509,9 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
   assert.match(insert.sql, /'pending'/);
   assert.deepEqual(insert.args.slice(8), ['cpn-checkout', 'SAVE10', 200, 20, 49, 229]);
   assert.ok(catalogStatements.some((statement) => statement.sql === 'BEGIN IMMEDIATE TRANSACTION'));
+  const stockUpdate = catalogStatements.find((statement) => statement.sql.startsWith('UPDATE variants SET stock_count = stock_count -'));
+  assert.ok(stockUpdate);
+  assert.deepEqual(stockUpdate.args, [2, 'V1', 'P1', 2]);
   assert.ok(catalogStatements.some((statement) => statement.sql.includes('usage_count = usage_count + 1')));
   assert.ok(catalogStatements.some((statement) => statement.sql === 'COMMIT'));
   assert.match(res.body.data.whatsappMessage, /\*Order status:\* Pending/);

@@ -12,6 +12,8 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { assets } from '@/lib/assets';
+import { useLocation } from '@/contexts/LocationContext';
+import { useGoogleBusinessDetails } from '@/components/storefront/GoogleReviewsCarousel';
 import { toast } from 'sonner';
 
 interface Slide {
@@ -84,6 +86,8 @@ const slides: Slide[] = [
 ];
 
 export default function HeroSlideshow() {
+  const { location } = useLocation();
+  const { details: googleBusiness } = useGoogleBusinessDetails();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -219,7 +223,10 @@ export default function HeroSlideshow() {
                   onClick={(e) => {
                     e.preventDefault();
                     // Replicate the existing delivery area button behavior
-                    toast.success("Delivery available in your area", { description: "Dumdum Cantonment · 700065" });
+                    toast.success(
+                      location ? "Delivery area selected" : "Choose a delivery area first",
+                      { description: location ? `${location.area}, ${location.city} · ${location.pincode}` : "Use your current location to check availability." }
+                    );
                   }}
                 >
                   <MapPin className="size-4 text-[#86CC68]" />
@@ -242,7 +249,7 @@ export default function HeroSlideshow() {
         {currentSlideData.id === 1 && (
           <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-xs font-bold text-white/65">
             <span className="flex items-center gap-2">
-              <BadgeCheck className="size-4 text-[#86CC68]" /> 4.9 Google rating · 275 reviews
+              <BadgeCheck className="size-4 text-[#86CC68]" /> {googleBusiness.rating.toFixed(1)} Google rating · {googleBusiness.reviewCount.toLocaleString()} reviews
             </span>
             <span className="flex items-center gap-2">
               <BadgeCheck className="size-4 text-[#86CC68]" /> No frozen stock

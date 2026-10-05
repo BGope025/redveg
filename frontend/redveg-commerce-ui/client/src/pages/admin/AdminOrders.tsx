@@ -20,9 +20,10 @@ const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
 type PaymentStatus = "Paid" | "Partial" | "Unpaid";
 
 export default function AdminOrders() {
+  const initialStatusFilter = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("status") === "pending" ? "New" : "All";
   const [orders, setOrders] = useState<Order[]>([]);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"All" | OrderStatus>("All");
+  const [filter, setFilter] = useState<"All" | OrderStatus>(initialStatusFilter);
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [paymentStatusDraft, setPaymentStatusDraft] = useState<PaymentStatus>("Unpaid");
@@ -39,7 +40,12 @@ export default function AdminOrders() {
         }
         const payload = await response.json();
         const rows = payload.data || payload;
-        setOrders(Array.isArray(rows) ? rows.map(normalizeOrder) : []);
+        const normalizedOrders = Array.isArray(rows) ? rows.map(normalizeOrder) : [];
+        setOrders(normalizedOrders);
+        const requestedOrderId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("order") : null;
+        if (requestedOrderId) {
+          setSelected(normalizedOrders.find((order) => order.id === requestedOrderId) ?? null);
+        }
       } catch (error) {
         console.error("Error fetching orders:", error);
         toast.error("Failed to load orders");

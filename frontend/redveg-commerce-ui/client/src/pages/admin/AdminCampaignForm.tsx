@@ -60,6 +60,10 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const closeEditor = () => {
+    if (onClose) onClose();
+    else navigate('/admin/offers');
+  };
 
   // Load campaign data for edit mode if not pre-loaded
   useEffect(() => {
@@ -78,11 +82,11 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
             });
           } else {
             setError('Campaign not found');
-            if (onClose) onClose(); // Notify parent to close
+            closeEditor();
           }
         } catch (err) {
           setError('Failed to load campaign');
-          if (onClose) onClose();
+          closeEditor();
         } finally {
           setLoading(false);
         }
@@ -107,14 +111,28 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
   };
 
   const handleSave = async (status: Campaign['status']) => {
+    if (!formData.name?.trim() || !formData.slug?.trim() || !formData.occasion || !formData.placement) {
+      const message = 'Campaign name, slug, occasion, and placement are required';
+      setError(message);
+      toast.error(message);
+      return;
+    }
+    const startsAt = new Date(formData.startsAt || '');
+    const endsAt = new Date(formData.endsAt || '');
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+      const message = 'End date and time must be after the start date and time';
+      setError(message);
+      toast.error(message);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const dataToSave = {
         ...formData,
         status,
-        startsAt: new Date(formData.startsAt!).toISOString(),
-        endsAt: new Date(formData.endsAt!).toISOString(),
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
       } as Campaign;
 
       let result: Campaign | null = null;
@@ -129,9 +147,7 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
       if (result && onSave) {
         onSave(result);
       }
-      if (onClose) {
-        onClose();
-      }
+      closeEditor();
     } catch (err: any) {
       setError(err.message || 'Failed to save campaign');
       toast.error(err.message || 'Failed to save campaign');
@@ -150,9 +166,7 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
       subtitle="Configure seasonal banners and collections"
       action={
         <div className="flex gap-3">
-          <Button variant="outline" onClick={() => {
-            if (onClose) onClose();
-          }}><ArrowLeft className="size-4 mr-2" /> Cancel</Button>
+          <Button variant="outline" onClick={closeEditor}><ArrowLeft className="size-4 mr-2" /> Cancel</Button>
           <Button variant="outline" onClick={() => handleSave("draft")} disabled={saving}><Save className="size-4 mr-2" /> Save Draft</Button>
           <Button onClick={() => handleSave("published")} disabled={saving} className="bg-[#B4232C] hover-bg-[#901c23] text-white">
             Publish Campaign
@@ -234,11 +248,11 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Campaign Name</label>
-                <Input name="name" value={formData.name || ""} onChange={handleChange} placeholder="e.g. Diwali Mega Sale" />
+                <Input required name="name" value={formData.name || ""} onChange={handleChange} placeholder="e.g. Diwali Mega Sale" />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Slug (URL friendly)</label>
-                <Input name="slug" value={formData.slug || ""} onChange={handleChange} placeholder="diwali-sale-2026" />
+                <Input required name="slug" value={formData.slug || ""} onChange={handleChange} placeholder="diwali-sale-2026" />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Occasion</label>

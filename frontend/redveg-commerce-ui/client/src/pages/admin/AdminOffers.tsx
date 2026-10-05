@@ -4,19 +4,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { assets } from "@/lib/assets";
-import { CalendarClock, Clock3, Edit3, Gift, Plus, Timer, X } from "lucide-react";
+import { CalendarClock, Clock3, Edit3, Gift, Plus, Timer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { campaignApi } from "@/lib/campaignApi";
 import type { Campaign } from "@/types/commerce";
-import AdminCampaignForm from "./AdminCampaignForm";
+import { useLocation } from "wouter";
 
 export default function AdminOffers() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editorMode, setEditorMode] = useState<'create' | 'edit' | null>(null);
-  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [, setLocation] = useLocation();
 
   // Fetch campaigns on mount and whenever needed (we could add a refresh function)
   useEffect(() => {
@@ -38,44 +37,11 @@ export default function AdminOffers() {
   }, []); // Empty deps for mount; we could add a refresh token later
 
   const handleCreate = () => {
-    setEditingCampaign(null);
-    setEditorMode('create');
+    setLocation('/admin/campaigns/new');
   };
 
   const handleEdit = (campaign: Campaign) => {
-    setEditingCampaign(campaign);
-    setEditorMode('edit');
-  };
-
-  const handleCloseEditor = () => {
-    setEditorMode(null);
-    setEditingCampaign(null);
-  };
-
-  const handleSaveCampaign = async (campaignData: Partial<Campaign>) => {
-    try {
-      if (editorMode === 'create') {
-        const newCampaign = await campaignApi.createCampaign(campaignData as any);
-        toast.success('Offer created successfully');
-        // Refresh list
-        setCampaigns(prev => [newCampaign, ...prev]);
-        handleCloseEditor();
-      } else if (editorMode === 'edit' && editingCampaign) {
-        const updatedCampaign = await campaignApi.updateCampaign(
-          editingCampaign.id,
-          campaignData as any
-        );
-        toast.success('Offer updated successfully');
-        // Update the campaign in the list
-        setCampaigns(prev =>
-          prev.map(c => (c.id === editingCampaign.id && updatedCampaign ? updatedCampaign : c))
-        );
-        handleCloseEditor();
-      }
-    } catch (err) {
-      toast.error('Failed to save offer');
-      // Keep editor open so user can fix
-    }
+    setLocation(`/admin/campaigns/${encodeURIComponent(campaign.id)}`);
   };
 
   if (loading) {
@@ -165,44 +131,6 @@ export default function AdminOffers() {
         </div>
       </div>
 
-      {/* Campaign Editor (Modal/Drawer) using AdminCampaignForm */}
-      {editorMode !== null && (
-        <div className="fixed inset-0 z-[70]">
-          <button className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={handleCloseEditor} aria-label="Close offer editor" />
-          <aside className="absolute inset-y-0 right-0 w-full max-w-xl overflow-y-auto bg-[#FFFDF9] p-5 shadow-2xl sm:p-8">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.15em] text-[#B4232C]">Campaign editor</p>
-                <h2 className="mt-2 font-display text-3xl font-black">{editorMode === 'create' ? 'Create an offer' : 'Edit offer'}</h2>
-              </div>
-              <Button variant="ghost" size="icon" className="rounded-full bg-white" onClick={handleCloseEditor}>
-                <X className="size-5" />
-              </Button>
-            </div>
-            <div className="mt-8">
-              {/* Pass props to AdminCampaignForm */}
-              <AdminCampaignForm
-                campaignId={editorMode === 'edit' && editingCampaign ? editingCampaign.id : undefined}
-                campaign={editorMode === 'edit' && editingCampaign ? editingCampaign : undefined}
-                // We need to handle the save and close callbacks from the form.
-                // However, AdminCampaignForm currently navigates back on its own.
-                // We need to modify it to accept onSave and onClose callbacks, or we can rely on its internal navigation and then refresh.
-                // For simplicity, we'll let the form handle its own navigation and then we'll refresh the list when we detect a change.
-                // We'll add a way to detect when the form closes and refresh.
-                // We'll modify AdminCampaignForm to accept onSave and onClose props.
-                // Let's do that now: we will update AdminCampaignForm to accept onSave and onClose.
-                // But to avoid further changes, we can rely on the form's internal navigation and then use a useEffect to refresh when the editor closes.
-                // We'll do that: when editorMode changes to null, we refresh the campaigns list.
-              />
-            </div>
-          </aside>
-        </div>
-      )}
-
-      {/* Refresh list when editor closes */}
-      {editorMode === null && editingCampaign === null && (
-        <></>
-      )}
     </AdminShell>
   );
 }

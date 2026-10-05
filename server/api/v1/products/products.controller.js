@@ -56,8 +56,24 @@ const getAllProducts = async (req, res) => {
     let categoryFilter = '';
     const args = [];
     if (category && category !== 'all') {
-      categoryFilter += " AND LOWER(TRIM(p.category)) = LOWER(TRIM(?))";
-      args.push(category);
+      // The storefront routes with normalized slugs, while catalog rows keep
+      // their display names (for example, crabs-seafood vs Crabs & Seafood).
+      const categoryAliases = {
+        fish: 'fish',
+        chicken: 'chicken',
+        mutton: 'mutton',
+        prawns: 'prawns',
+        'crabs-seafood': 'crabs & seafood',
+        combos: 'combos',
+        offers: 'offers'
+      };
+      const categoryValue = categoryAliases[category] || category;
+      categoryFilter += ` AND (
+        LOWER(TRIM(p.category)) = LOWER(TRIM(?))
+        OR LOWER(REPLACE(TRIM(p.category), ' ', '-')) = LOWER(TRIM(?))
+        OR LOWER(REPLACE(REPLACE(TRIM(p.category), ' & ', '-'), ' ', '-')) = LOWER(TRIM(?))
+      )`;
+      args.push(categoryValue, category, category);
     }
 
     if (search) {

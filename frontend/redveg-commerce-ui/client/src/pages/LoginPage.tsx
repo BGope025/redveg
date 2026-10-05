@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Redirect } from "wouter";
+import { Redirect, useLocation } from "wouter";
 import { BrandLogo } from "@/components/BrandLogo";
 import { toast } from "sonner";
 
@@ -26,10 +26,11 @@ export function LoginPage() {
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [location, setLocation] = useLocation();
+  const returnTo = new URLSearchParams(location.split("?")[1] || "").get("returnTo") || "/";
 
-  // If already authenticated, redirect to home
   if (isAuthenticated) {
-    return <Redirect replace to="/" />;
+    return <Redirect replace to={returnTo} />;
   }
 
   const handleGoogleSignIn = async () => {
@@ -38,6 +39,7 @@ export function LoginPage() {
     try {
       await signInWithGoogle();
       toast.success("Signed in with Google!");
+      setLocation(returnTo);
     } catch (err: any) {
       setError(err.message || "Google sign-in failed");
     } finally {
@@ -81,6 +83,7 @@ export function LoginPage() {
     try {
       await verifyPhoneOtp(otp);
       toast.success("Phone verified! You're signed in.");
+      setLocation(returnTo);
     } catch (err: any) {
       setError(err.message || "Invalid OTP. Please try again.");
     } finally {

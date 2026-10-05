@@ -1,4 +1,5 @@
 import { ProductCard } from "@/components/storefront/ProductCard";
+import { GoogleReviewsCarousel } from "@/components/storefront/GoogleReviewsCarousel";
 import { StoreShell } from "@/components/storefront/StoreShell";
 import { ArrowRight, Clock3, ShieldCheck, ThermometerSnowflake } from "lucide-react";
 import { Link } from "wouter";
@@ -88,6 +89,7 @@ export default function HomePage() {
       </section>
 
       <section className="container grid gap-3 pb-12 sm:grid-cols-3">{promises.map(({ icon: Icon, title, text }) => <div key={title} className="rounded-2xl bg-white p-5 ring-1 ring-black/[0.05]"><Icon className="size-5 text-[#B4232C]" /><h3 className="mt-3 font-black">{title}</h3><p className="mt-1 text-sm leading-6 text-muted-foreground">{text}</p></div>)}</section>
+      <GoogleReviewsCarousel />
     </StoreShell>
   );
 }

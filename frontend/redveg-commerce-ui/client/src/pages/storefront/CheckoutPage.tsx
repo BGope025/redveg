@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useCart } from "@/contexts/CartContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/lib/api";
 import { AlertCircle, ArrowLeft, Check, Copy, ExternalLink, Loader2, MapPin, MessageCircle, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 function money(value: number) {
   return Number(value || 0).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -28,6 +29,8 @@ type SavedOrder = {
 };
 
 export default function CheckoutPage() {
+  const { isAuthenticated, loading: authLoading } = useAuth();
+  const [, setLocation] = useLocation();
   const {
     items, resolvedItems, subtotal, deliveryFee, total, clearCart,
     couponCode, couponQuote, couponValidationLoading, couponValidationError, clearCoupon,
@@ -41,6 +44,10 @@ export default function CheckoutPage() {
   const displayDeliveryFee = quoteIsCurrent ? couponQuote!.deliveryFee : deliveryFee;
   const displayTotal = quoteIsCurrent ? couponQuote!.totalAmount : total;
   const couponPending = Boolean(couponCode && (couponValidationLoading || !quoteIsCurrent));
+
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) setLocation(`/login?returnTo=${encodeURIComponent("/checkout")}`);
+  }, [authLoading, isAuthenticated, setLocation]);
 
   const update = (field: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((current) => ({ ...current, [field]: event.target.value }));
 
@@ -94,6 +101,10 @@ export default function CheckoutPage() {
 
   const openWhatsapp = () => savedOrder && window.location.assign(whatsappOrderUrl(savedOrder.message));
 
+  if (authLoading || !isAuthenticated) {
+    return <StoreShell><div className="container py-24 text-center text-sm font-bold text-muted-foreground">Checking your RedVeg account…</div></StoreShell>;
+  }
+
   if (savedOrder) {
     return (
       <StoreShell>
@@ -108,7 +119,7 @@ export default function CheckoutPage() {
         <Link href="/cart" className="inline-flex items-center gap-2 text-sm font-bold text-muted-foreground hover:text-[#B4232C]"><ArrowLeft className="size-4" /> Back to basket</Link>
         <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_390px]">
           <form onSubmit={submit} className="rounded-[1.7rem] bg-white p-5 shadow-[0_16px_45px_rgba(61,33,27,.07)] ring-1 ring-black/[0.045] sm:p-8">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#B4232C]">Guest checkout</p><h1 className="mt-2 font-display text-3xl font-black tracking-[-0.035em]">Where should we deliver?</h1><p className="mt-2 text-sm text-muted-foreground">No account needed. We’ll confirm your order and delivery on WhatsApp.</p>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-[#B4232C]">Secure checkout</p><h1 className="mt-2 font-display text-3xl font-black tracking-[-0.035em]">Where should we deliver?</h1><p className="mt-2 text-sm text-muted-foreground">Your Firebase sign-in keeps your RedVeg session active while we confirm your order.</p>
             <div className="mt-8 grid gap-5 sm:grid-cols-2"><Field label="Full name" required><Input value={form.name} onChange={update("name")} placeholder="Amit Roy" className="h-12 rounded-xl bg-[#F8F5F1]" /></Field><Field label="Mobile number" required><Input value={form.mobile} onChange={update("mobile")} inputMode="tel" placeholder="10-digit mobile number" className="h-12 rounded-xl bg-[#F8F5F1]" /></Field></div>
             <div className="mt-5"><Field label="House, street and building" required><Textarea value={form.address} onChange={update("address")} placeholder="Flat, house number, street" className="min-h-24 rounded-xl bg-[#F8F5F1]" /></Field></div>
             <div className="mt-5 grid gap-5 sm:grid-cols-2"><Field label="Locality" required><Input value={form.locality} onChange={update("locality")} placeholder="Dumdum Cantonment" className="h-12 rounded-xl bg-[#F8F5F1]" /></Field><Field label="Pincode" required><div className="relative"><MapPin className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#267345]" /><Input value={form.pincode} onChange={update("pincode")} inputMode="numeric" maxLength={6} placeholder="700065" className="h-12 rounded-xl bg-[#F8F5F1] pl-10" /></div></Field></div>

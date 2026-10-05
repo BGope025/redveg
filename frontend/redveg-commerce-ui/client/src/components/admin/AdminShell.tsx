@@ -6,6 +6,7 @@ import { BarChart3, Bell, ChevronRight, Gift, LayoutDashboard, LogOut, Menu, Pac
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 const adminLinks = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
@@ -21,9 +22,21 @@ const adminLinks = [
 
 export function AdminShell({ children, title, subtitle, action }: { children: React.ReactNode; title: string; subtitle: string; action?: React.ReactNode }) {
   const [location] = useLocation();
+  const [, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const { signOutAdmin } = useAuth();
   const [storeStatus, setStoreStatus] = useState<{ isOpen?: boolean; city?: string; closingTime?: string }>({});
   useEffect(() => { apiFetch("settings/store-status").then((response) => response.ok ? response.json() : null).then((payload) => { if (!payload?.data) return; try { const parsed = typeof payload.data.value === "string" ? JSON.parse(payload.data.value) : payload.data.value; if (parsed && typeof parsed === "object") setStoreStatus(parsed); } catch { /* keep default */ } }).catch(() => undefined); }, []);
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await signOutAdmin();
+    } finally {
+      setLocation('/admin/login');
+    }
+  };
 
   const sidebar = (
     <aside className="flex h-full flex-col overflow-hidden bg-[#17110F] px-4 pb-5 pt-6 text-white">
@@ -70,7 +83,7 @@ export function AdminShell({ children, title, subtitle, action }: { children: Re
             </Link>
             <Button variant="ghost" size="icon" className="relative rounded-full bg-white">
               <Bell className="size-4" /><span className="absolute right-2 top-2 size-1.5 rounded-full bg-[#B4232C]" /></Button>
-            <Button variant="ghost" size="icon" className="relative rounded-full bg-white">
+            <Button variant="ghost" size="icon" onClick={handleLogout} disabled={loggingOut} className="relative rounded-full bg-white" aria-label="Log out of the admin panel" title="Log out">
               <LogOut className="size-4" />
             </Button>
             <Link href="/" className="hidden rounded-full bg-white px-4 py-2.5 text-xs font-black text-[#B4232C] shadow-sm ring-1 ring-black/5 sm:inline-flex">View store</Link>

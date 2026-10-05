@@ -16,9 +16,11 @@ const getStats = async (req, res) => {
     // Get today's aggregates (Kolkata timezone)
     const todayStart = await ordersDb.execute({
       sql: "SELECT datetime('now', 'start of day', '-5 hours', '-30 minutes') as start",
+      args: [],
     });
     const todayEnd = await ordersDb.execute({
       sql: "SELECT datetime('now', 'start of day', '+1 day', '-5 hours', '-30 minutes') as end",
+      args: [],
     });
     const startToday = todayStart.rows[0].start;
     const endToday = todayEnd.rows[0].end;
@@ -26,9 +28,11 @@ const getStats = async (req, res) => {
     // Get yesterday's aggregates
     const yesterdayStart = await ordersDb.execute({
       sql: "SELECT datetime('now', 'start of day', '-1 day', '-5 hours', '-30 minutes') as start",
+      args: [],
     });
     const yesterdayEnd = await ordersDb.execute({
       sql: "SELECT datetime('now', 'start of day', '0 days', '-5 hours', '-30 minutes') as end",
+      args: [],
     });
     const startYesterday = yesterdayStart.rows[0].start;
     const endYesterday = yesterdayEnd.rows[0].end;
@@ -66,8 +70,9 @@ const getStats = async (req, res) => {
       sql: `
         SELECT COUNT(*) as pending_count
         FROM orders
-        WHERE status = 'pending'
+        WHERE is_archived = 0 AND LOWER(status) IN ('pending', 'new')
       `,
+      args: [],
     });
 
     const todayOrderCount = todayResult.rows[0].order_count;

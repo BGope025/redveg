@@ -48,7 +48,9 @@ export default function ShopPage() {
         if (category && category !== "all") searchParams.set("category", category);
         if (search) searchParams.set("q", search);
         if (sort !== "popular") searchParams.set("sort", sort);
-        searchParams.set("limit", PAGE_SIZE.toString());
+        // Load the full catalog for a selected category so the client can
+        // enforce the filter even when an older backend ignores the slug.
+        searchParams.set("limit", category === "all" ? PAGE_SIZE.toString() : "500");
         searchParams.set("offset", "0");
         
         const productPath = `products?${searchParams.toString()}`;
@@ -69,8 +71,11 @@ export default function ShopPage() {
         if (!cancelled) {
           setCategories(unwrapApiData<Category[]>(categoriesPayload, []));
           const newProducts = unwrapApiData<Product[]>(productsPayload, []);
-          setProducts(newProducts);
-          setHasMore(newProducts.length === PAGE_SIZE);
+          const visibleProducts = category === "all"
+            ? newProducts
+            : newProducts.filter((product) => normalizeCategorySlug(product.category) === category);
+          setProducts(visibleProducts);
+          setHasMore(category === "all" && newProducts.length === PAGE_SIZE);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load catalog");
@@ -84,7 +89,7 @@ export default function ShopPage() {
 
   // Fetch more data on scroll
   useEffect(() => {
-    if (page === 1) return; // Initial fetch is handled above
+    if (page === 1 || category !== "all") return; // Initial fetch handles categories in full
     
     let cancelled = false;
     const fetchMoreData = async () => {
