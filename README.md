@@ -76,6 +76,12 @@ RedVeg-Backend/
    npm start
    ```
 
+## GoDaddy Node.js Hosting
+
+For this Express backend, deploy the **repository root** (the directory containing this `package.json`), not the nested `frontend/redveg-commerce-ui` app. GoDaddy requires a `build` script even when no compilation is needed; the root build script is intentionally a no-op. The `start` script launches `server/server.js`, which listens on GoDaddy's injected `PORT` and binds to `0.0.0.0`.
+
+In GoDaddy's app settings, configure the backend secrets from the Environment Variables section below (at minimum the database URLs/tokens used by this deployment, Cloudinary credentials, and `JWT_SECRET`). Do not upload or commit `.env`. After deployment, check **Runtime Logs** for `Server listening on 0.0.0.0:<port>` and open `/api/v1/health/ping` on the deployed app; it should return HTTP 200 with `status: "alive"`.
+
 ## API Endpoints
 
 ### Authentication
