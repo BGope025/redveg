@@ -25,8 +25,8 @@ if (!process.env.AVAILABLE_PINCODES_DB_URL && !process.env.DATA_PATH) {
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingEnvVars.length > 0) {
-  console.error('Missing required environment variables:', missingEnvVars);
-  process.exit(1);
+  console.warn('Warning: Missing environment variables:', missingEnvVars);
+  console.warn('Some features may not work correctly. Please configure these variables in your hosting environment.');
 }
 
 module.exports = {

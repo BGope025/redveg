@@ -1,8 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const { initializeDatabaseConnections, migrateCatalogCategories } = require('./config/turso');
-const { initializeCloudinary } = require('./config/cloudflare');
 const apiRouter = require('./api/index');
 const frontendRouter = require('./routes/frontendRoutes');
 const { errorHandler } = require('./middleware/error.middleware');
@@ -37,12 +35,26 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Initialize database connections
-initializeDatabaseConnections();
-migrateCatalogCategories();
+// Initialize database connections with error handling
+try {
+  const { initializeDatabaseConnections, migrateCatalogCategories } = require('./config/turso');
+  initializeDatabaseConnections();
+  migrateCatalogCategories();
+  console.log('Database initialization completed');
+} catch (dbError) {
+  console.warn('Warning: Database initialization failed:', dbError.message);
+  console.warn('Some database-dependent features may not work correctly');
+}
 
-// Initialize Cloudinary
-initializeCloudinary();
+// Initialize Cloudinary with error handling
+try {
+  const { initializeCloudinary } = require('./config/cloudflare');
+  initializeCloudinary();
+  console.log('Cloudinary initialization completed');
+} catch (cloudinaryError) {
+  console.warn('Warning: Cloudinary initialization failed:', cloudinaryError.message);
+  console.warn('Image upload features may not work correctly');
+}
 
 // Request logging middleware
 app.use((req, res, next) => {
