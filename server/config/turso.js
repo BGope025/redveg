@@ -1,4 +1,3 @@
-const { createClient } = require('@libsql/client');
 const {
   catalogDbUrl,
   catalogDbAuthToken,
@@ -51,10 +50,12 @@ async function fetchWithRetry(input, init = {}) {
 }
 
 function createTursoClient(url, authToken, label) {
+  const isLocalFile = /^file:/i.test(url);
+  const { createClient } = require(isLocalFile ? '@libsql/client' : '@libsql/client/web');
   const clientConfig = { url, ...(authToken && { authToken }) };
-  // libsql:// URLs are resolved to HTTPS by @libsql/client. Always install the
-  // bounded fetch wrapper for remote databases so a network failure cannot
-  // leave the pincode request hanging indefinitely.
+  // The web-standard driver avoids loading LibSQL's native Linux addon for
+  // remote Turso URLs. Keep the native driver only for local file: databases.
+  // Bound remote requests so a network failure cannot hang the pincode lookup.
   if (!/^file:/i.test(url)) clientConfig.fetch = fetchWithRetry;
   try {
     console.log(`[turso] ${label}: ${new URL(url).host}`);

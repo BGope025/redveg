@@ -1,5 +1,4 @@
-const dotenv = require('dotenv');
-dotenv.config();
+require('./loadEnv')();
 
 // Validate required environment variables
 const requiredEnvVars = [

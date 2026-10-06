@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "description": "Backend for RedVeg e-commerce platform",
   "main": "server/server.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "start": "node server/server.js",
     "build": "node -e \"console.log('No build step required for this backend')\"",
     "dev": "nodemon server/server.js",
-    "test": "node --test test/backend-api.test.js"
+    "test": "node --test"
   },
   "keywords": [
     "ecommerce",
@@ -20,6 +23,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.450.0",
     "@libsql/client": "^0.5.6",
+    "body-parser": "^1.20.8",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",

@@ -78,7 +78,11 @@ RedVeg-Backend/
 
 ## GoDaddy Node.js Hosting
 
-For this Express backend, deploy the **repository root** (the directory containing this `package.json`), not the nested `frontend/redveg-commerce-ui` app. GoDaddy requires a `build` script even when no compilation is needed; the root build script is intentionally a no-op. The `start` script launches `server/server.js`, which listens on GoDaddy's injected `PORT` and binds to `0.0.0.0`.
+For this Express backend, deploy the **repository root** (the directory containing this `package.json`), not the nested `frontend/redveg-commerce-ui` app. The root manifest pins GoDaddy's Node.js 22 runtime, includes the required no-op `build` script, and the root `.npmrc` selects the public npm registry. The `start` script launches `server/server.js`, which listens on GoDaddy's injected `PORT` and binds to `0.0.0.0`.
+
+Remote Turso/LibSQL URLs use the official `@libsql/client/web` driver, avoiding a native Linux addon that can fail on GoDaddy's `fcntl64` startup path. The native driver is loaded only for local `file:` databases. GoDaddy must have the remote database URLs and tokens configured as app environment variables; its injected `PORT` is used if `dotenv` is unavailable in the hosted image.
+
+`body-parser` is an explicit production dependency because GoDaddy's Runtime Logs also reported it missing. If a new deployment still reports missing modules, confirm the app is rebuilding the repository's latest `main` source (not a stale preview artifact) and that its install/build operation completed before startup.
 
 In GoDaddy's app settings, configure the backend secrets from the Environment Variables section below (at minimum the database URLs/tokens used by this deployment, Cloudinary credentials, and `JWT_SECRET`). Do not upload or commit `.env`. After deployment, check **Runtime Logs** for `Server listening on 0.0.0.0:<port>` and open `/api/v1/health/ping` on the deployed app; it should return HTTP 200 with `status: "alive"`.
 
