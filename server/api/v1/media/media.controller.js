@@ -19,7 +19,7 @@ const uploadProductImage = async (req, res) => {
       throw generateValidationError('Only JPEG, PNG, and WebP images are allowed');
     }
 
-    // Upload to Cloudinary (file is already processed by sharp in upload.middleware)
+    // Upload to Cloudinary (file is already processed by jimp in upload.middleware)
     const uploadResult = await uploadToCloudinary(req.file.buffer, 'products', req.file.mimetype);
 
     logger.info(`Product image uploaded: ${uploadResult.key}`);
@@ -101,4 +101,3 @@ module.exports = {
   uploadProductImage,
   uploadUiAsset
 };
-

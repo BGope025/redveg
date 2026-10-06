@@ -1,7 +1,7 @@
 const multer = require('multer');
 const { generateValidationError } = require('../utils/error-classes');
 const { maxFileSize } = require('../config/env');
-const sharp = require('sharp');
+const Jimp = require('jimp');
 
 /**
  * Multer storage configuration - memory storage with 5MB limit
@@ -58,7 +58,7 @@ const handleUploadError = (err, req, res, next) => {
 };
 
 /**
- * Middleware to process uploaded image with sharp
+ * Middleware to process uploaded image with jimp
  * Converts to WebP and reduces quality for optimization
  */
 const processImage = async (req, res, next) => {
@@ -68,10 +68,10 @@ const processImage = async (req, res, next) => {
       return next();
     }
 
-    // Process image with sharp: convert to WebP, quality 80
-    const processedBuffer = await sharp(req.file.buffer)
-      .webp({ quality: 80 })
-      .toBuffer();
+    // Process image with jimp: convert to WebP, quality 80
+    const image = await Jimp.read(req.file.buffer);
+    await image.quality(80);
+    const processedBuffer = await image.getBufferAsync(Jimp.MIME_WEBP);
 
     // Replace original buffer with processed one
     req.file.buffer = processedBuffer;
