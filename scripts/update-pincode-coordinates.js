@@ -4,7 +4,8 @@ const { getDatabaseConnection, initializeDatabaseConnections } = require('../ser
 const BASE_LAT = 22.5726;
 const BASE_LON = 88.3639;
 
-// Approximate mapping for major areas (can add more if needed)
+// Only use verified area centroids here. Do not invent random coordinates:
+// reverse-geocoding fallback must never silently point a customer to a wrong area.
 const AREA_MAP = {
   'Kolkata GPO': { lat: 22.5736, lon: 88.3486 },
   'Dumdum': { lat: 22.6224, lon: 88.4239 },
@@ -13,23 +14,13 @@ const AREA_MAP = {
   'Bhawanipur': { lat: 22.5348, lon: 88.3481 }
 };
 
-function generateApproximateCoordinates(area) {
-  // Check if we have a hardcoded match
+function getVerifiedCoordinates(area) {
   for (const [key, coords] of Object.entries(AREA_MAP)) {
     if (area.includes(key)) {
       return coords;
     }
   }
-
-  // Otherwise generate a random coordinate within a ~10km radius of Kolkata center
-  // 1 degree lat is ~111km, so 0.1 degree is ~11km
-  const latOffset = (Math.random() - 0.5) * 0.15;
-  const lonOffset = (Math.random() - 0.5) * 0.15;
-
-  return {
-    lat: +(BASE_LAT + latOffset).toFixed(6),
-    lon: +(BASE_LON + lonOffset).toFixed(6)
-  };
+  return null;
 }
 
 async function run() {
@@ -54,7 +45,11 @@ async function run() {
     let updatedCount = 0;
 
     for (const loc of locations) {
-      const coords = generateApproximateCoordinates(loc.area);
+      const coords = getVerifiedCoordinates(loc.area);
+      if (!coords) {
+        console.warn(`Skipping ${loc.pincode}: no verified coordinates for ${loc.area}`);
+        continue;
+      }
       
       await db.execute({
         sql: 'UPDATE available_pincodes SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP WHERE pincode = ?',

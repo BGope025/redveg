@@ -1,5 +1,11 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { saltRounds } = require('../config/env');
+
+const BCRYPT_SHA256_PREFIX = 'bcrypt-sha256:';
+
+const digestPassword = (password) =>
+  crypto.createHash('sha256').update(String(password), 'utf8').digest('hex');
 
 /**
  * Hash a password
@@ -8,7 +14,8 @@ const { saltRounds } = require('../config/env');
  */
 const hashPassword = async (password) => {
   const salt = await bcrypt.genSalt(saltRounds);
-  return await bcrypt.hash(password, salt);
+  const hash = await bcrypt.hash(digestPassword(password), salt);
+  return `${BCRYPT_SHA256_PREFIX}${hash}`;
 };
 
 /**
@@ -18,7 +25,16 @@ const hashPassword = async (password) => {
  * @returns {Promise<boolean>} True if password matches
  */
 const comparePassword = async (password, hashedPassword) => {
-  return await bcrypt.compare(password, hashedPassword);
+  const storedHash = String(hashedPassword || '');
+  if (storedHash.startsWith(BCRYPT_SHA256_PREFIX)) {
+    return await bcrypt.compare(
+      digestPassword(password),
+      storedHash.slice(BCRYPT_SHA256_PREFIX.length)
+    );
+  }
+
+  // Existing bcrypt hashes remain valid during the migration to the tagged format.
+  return await bcrypt.compare(password, storedHash);
 };
 
 module.exports = {

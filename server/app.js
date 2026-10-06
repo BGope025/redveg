@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const { initializeDatabaseConnections } = require('./config/turso');
+const { initializeDatabaseConnections, migrateCatalogCategories } = require('./config/turso');
 const { initializeCloudinary } = require('./config/cloudflare');
 const apiRouter = require('./api/index');
 const frontendRouter = require('./routes/frontendRoutes');
@@ -9,6 +9,12 @@ const { errorHandler } = require('./middleware/error.middleware');
 const logger = require('./utils/logger');
 
 const app = express();
+
+// The storefront may request browser geolocation; embedded third parties may not.
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'geolocation=(self)');
+  next();
+});
 
 const configuredCorsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5177,http://localhost:3000')
   .split(',')
@@ -33,6 +39,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Initialize database connections
 initializeDatabaseConnections();
+migrateCatalogCategories();
 
 // Initialize Cloudinary
 initializeCloudinary();

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import { Link } from 'wouter';
+import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { Link } from "wouter";
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,12 +9,14 @@ import {
   ShieldCheck,
   Sparkles,
   ThermometerSnowflake,
-  ChevronDown
-} from 'lucide-react';
-import { assets } from '@/lib/assets';
-import { useLocation } from '@/contexts/LocationContext';
-import { useGoogleBusinessDetails } from '@/components/storefront/GoogleReviewsCarousel';
-import { toast } from 'sonner';
+  ChevronDown,
+} from "lucide-react";
+import { assets } from "@/lib/assets";
+import { useLocation } from "@/contexts/LocationContext";
+import { useCampaign } from "@/contexts/CampaignContext";
+import type { Campaign } from "@/types/commerce";
+import { useGoogleBusinessDetails } from "@/components/storefront/GoogleReviewsCarousel";
+import { toast } from "sonner";
 
 interface Slide {
   id: number;
@@ -26,68 +28,111 @@ interface Slide {
   secondaryButtonText?: string;
   secondaryButtonHref?: string;
   image?: string;
+  mobileImage?: string;
   showSecondaryButton?: boolean;
 }
 
 const slides: Slide[] = [
   {
     id: 1,
-    eyebrow: 'DELIVERING FRESH ACROSS KOLKATA',
-    headline: 'Fresh cuts.\nProperly done.',
-    description: 'Premium chicken, mutton, fish and seafood—cleaned to your preference, hygienically packed and ready for your kitchen.',
-    primaryButtonText: 'Shop fresh cuts',
-    primaryButtonHref: '/shop',
-    secondaryButtonText: 'Check delivery area',
-    secondaryButtonHref: '#', // Will be handled separately to preserve existing behavior
-    image: assets.hero
+    eyebrow: "DELIVERING FRESH ACROSS KOLKATA",
+    headline: "Fresh cuts.\nProperly done.",
+    description:
+      "Premium chicken, mutton, fish and seafoodâ€”cleaned to your preference, hygienically packed and ready for your kitchen.",
+    primaryButtonText: "Shop fresh cuts",
+    primaryButtonHref: "/shop",
+    secondaryButtonText: "Check delivery area",
+    secondaryButtonHref: "#", // Will be handled separately to preserve existing behavior
+    image: assets.hero,
   },
   {
     id: 2,
-    eyebrow: 'KITCHEN-READY CHICKEN',
-    headline: 'Tender cuts.\nReady to cook.',
-    description: 'Fresh chicken cuts prepared to your preference and packed hygienically for everyday meals.',
-    primaryButtonText: 'Shop chicken',
-    primaryButtonHref: '/shop?category=chicken',
-    image: assets.chicken
+    eyebrow: "KITCHEN-READY CHICKEN",
+    headline: "Tender cuts.\nReady to cook.",
+    description:
+      "Fresh chicken cuts prepared to your preference and packed hygienically for everyday meals.",
+    primaryButtonText: "Shop chicken",
+    primaryButtonHref: "/shop?category=chicken",
+    image: assets.chicken,
   },
   {
     id: 3,
-    eyebrow: 'HAND-SELECTED MUTTON',
-    headline: 'Rich flavour.\nCarefully selected.',
-    description: 'Premium mutton cuts, prepared with care and delivered fresh to your doorstep.',
-    primaryButtonText: 'Shop mutton',
-    primaryButtonHref: '/shop?category=mutton',
-    image: assets.mutton
+    eyebrow: "HAND-SELECTED MUTTON",
+    headline: "Rich flavour.\nCarefully selected.",
+    description:
+      "Premium mutton cuts, prepared with care and delivered fresh to your doorstep.",
+    primaryButtonText: "Shop mutton",
+    primaryButtonHref: "/shop?category=mutton",
+    image: assets.mutton,
   },
   {
     id: 4,
-    eyebrow: 'FRESH CATCH, CLEANED WITH CARE',
-    headline: 'From the coast.\nTo your kitchen.',
-    description: 'Fresh fish, cleaned prawns and seafood prepared for easy cooking at home.',
-    primaryButtonText: 'Shop fish',
-    primaryButtonHref: '/shop?category=fish',
-    secondaryButtonText: 'Shop seafood',
-    secondaryButtonHref: '/shop?category=crabs-seafood', // Using crabs-seafood as per existing convention
+    eyebrow: "FRESH CATCH, CLEANED WITH CARE",
+    headline: "From the coast.\nTo your kitchen.",
+    description:
+      "Fresh fish, cleaned prawns and seafood prepared for easy cooking at home.",
+    primaryButtonText: "Shop fish",
+    primaryButtonHref: "/shop?category=fish",
+    secondaryButtonText: "Shop seafood",
+    secondaryButtonHref: "/shop?category=crabs-seafood", // Using crabs-seafood as per existing convention
     showSecondaryButton: true,
-    image: assets.prawns // Using prawns image as it represents seafood well
+    image: assets.prawns, // Using prawns image as it represents seafood well
   },
   {
     id: 5,
-    eyebrow: 'BETTER VALUE FOR FAMILY MEALS',
-    headline: 'More for the table.\nDelivered on time.',
-    description: 'Explore family-friendly combos, clear delivery windows and fresh products delivered across Kolkata.',
-    primaryButtonText: 'Explore combos',
-    primaryButtonHref: '/shop?category=combos',
-    secondaryButtonText: 'View offers',
-    secondaryButtonHref: '/shop?category=offers',
+    eyebrow: "BETTER VALUE FOR FAMILY MEALS",
+    headline: "More for the table.\nDelivered on time.",
+    description:
+      "Explore family-friendly combos, clear delivery windows and fresh products delivered across Kolkata.",
+    primaryButtonText: "Explore combos",
+    primaryButtonHref: "/shop?category=combos",
+    secondaryButtonText: "View offers",
+    secondaryButtonHref: "/shop?category=offers",
     showSecondaryButton: true,
-    image: assets.hero
-  }
+    image: assets.hero,
+  },
 ];
+
+function campaignHref(campaign: Campaign) {
+  if (campaign.destinationType === "category")
+    return `/shop?category=${encodeURIComponent(campaign.destinationValue)}`;
+  if (campaign.destinationType === "product")
+    return `/product/${encodeURIComponent(campaign.destinationValue)}`;
+  if (campaign.destinationType === "collection")
+    return campaign.collectionLink || campaign.destinationValue || "/shop";
+  return campaign.destinationValue || "/shop";
+}
+
+function campaignSlide(campaign: Campaign): Slide | null {
+  const image =
+    campaign.desktopImageUrl ||
+    campaign.mobileImageUrl ||
+    campaign.posterImageUrl;
+  if (!image) return null;
+  return {
+    id: -1,
+    eyebrow: campaign.label || "LIVE OFFER",
+    headline: campaign.name,
+    description:
+      campaign.message ||
+      "A new RedVeg offer is live now. Shop before it ends.",
+    primaryButtonText: campaign.ctaLabel || "Shop offer",
+    primaryButtonHref: campaignHref(campaign),
+    image,
+    mobileImage: campaign.mobileImageUrl,
+  };
+}
 
 export default function HeroSlideshow() {
   const { location } = useLocation();
+  const { activeCampaign } = useCampaign();
   const { details: googleBusiness } = useGoogleBusinessDetails();
+  const liveCampaignSlide = activeCampaign
+    ? campaignSlide(activeCampaign)
+    : null;
+  const heroSlides = liveCampaignSlide
+    ? [liveCampaignSlide, ...slides]
+    : slides;
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -98,15 +143,19 @@ export default function HeroSlideshow() {
   const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setCurrentSlide(0);
+  }, [activeCampaign?.id]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     setReducedMotion(mediaQuery.matches);
 
     const listener = (event: MediaQueryListEvent) => {
       setReducedMotion(event.matches);
     };
 
-    mediaQuery.addEventListener('change', listener);
-    return () => mediaQuery.removeEventListener('change', listener);
+    mediaQuery.addEventListener("change", listener);
+    return () => mediaQuery.removeEventListener("change", listener);
   }, []);
 
   // Auto-advance slides every 4.5 seconds (disabled if reduced motion)
@@ -114,7 +163,7 @@ export default function HeroSlideshow() {
     if (isHovered || isFocused || reducedMotion) return;
 
     timeoutRef.current = setTimeout(() => {
-      setCurrentSlide(prev => (prev + 1) % slides.length);
+      setCurrentSlide(prev => (prev + 1) % heroSlides.length);
     }, 4500);
 
     return () => {
@@ -129,7 +178,7 @@ export default function HeroSlideshow() {
     if (timeoutRef.current || reducedMotion) return;
     if (!isHovered && !isFocused) {
       timeoutRef.current = setTimeout(() => {
-        setCurrentSlide(prev => (prev + 1) % slides.length);
+        setCurrentSlide(prev => (prev + 1) % heroSlides.length);
       }, 4500);
     }
   }, [currentSlide, isHovered, isFocused, reducedMotion]);
@@ -142,7 +191,7 @@ export default function HeroSlideshow() {
     }
     if (!isHovered && !isFocused) {
       timeoutRef.current = setTimeout(() => {
-        setCurrentSlide(prev => (prev + 1) % slides.length);
+        setCurrentSlide(prev => (prev + 1) % heroSlides.length);
       }, 4500);
     }
   };
@@ -152,7 +201,7 @@ export default function HeroSlideshow() {
   const handleFocusIn = () => setIsFocused(true);
   const handleFocusOut = () => setIsFocused(false);
 
-  const currentSlideData = slides[currentSlide];
+  const currentSlideData = heroSlides[currentSlide] ?? heroSlides[0];
 
   return (
     <div
@@ -166,18 +215,30 @@ export default function HeroSlideshow() {
     >
       {/* Slide Image */}
       {currentSlideData.image && (
-        <img
-          src={currentSlideData.image}
-          alt={`Slide ${currentSlide + 1}`}
-          className={`absolute inset-0 size-full object-cover object-center lg:object-right ${reducedMotion ? 'transition-none' : 'duration-500'}`}
-        />
+        <picture>
+          {currentSlideData.mobileImage && (
+            <source
+              media="(max-width: 639px)"
+              srcSet={currentSlideData.mobileImage}
+            />
+          )}
+          <img
+            src={currentSlideData.image}
+            alt={activeCampaign?.altText || `Slide ${currentSlide + 1}`}
+            className={`absolute inset-0 size-full object-cover object-center lg:object-right ${reducedMotion ? "transition-none" : "duration-500"}`}
+          />
+        </picture>
       )}
 
       {/* Dark Gradient Overlay */}
-      <div className={`absolute inset-0 bg-[linear-gradient(90deg,rgba(19,12,10,.96)_0%,rgba(19,12,10,.88)_34%,rgba(19,12,10,.35)_67%,rgba(19,12,10,.08)_100%)] ${reducedMotion ? 'transition-none' : 'duration-500'}`} />
+      <div
+        className={`absolute inset-0 bg-[linear-gradient(90deg,rgba(19,12,10,.96)_0%,rgba(19,12,10,.88)_34%,rgba(19,12,10,.35)_67%,rgba(19,12,10,.08)_100%)] ${reducedMotion ? "transition-none" : "duration-500"}`}
+      />
 
       {/* Radial Gradient Overlay */}
-      <div className={`absolute inset-0 opacity-30 [background-image:radial-gradient(circle_at_15%_20%,rgba(180,35,44,.55),transparent_34%)] ${reducedMotion ? 'transition-none' : 'duration-500'}`} />
+      <div
+        className={`absolute inset-0 opacity-30 [background-image:radial-gradient(circle_at_15%_20%,rgba(180,35,44,.55),transparent_34%)] ${reducedMotion ? "transition-none" : "duration-500"}`}
+      />
 
       {/* Slide Content */}
       <div className="relative z-10 flex min-h-[520px] max-w-2xl flex-col justify-center px-6 py-14 sm:min-h-[560px] sm:px-12 lg:min-h-[590px] lg:px-16">
@@ -189,10 +250,12 @@ export default function HeroSlideshow() {
 
         {/* Headline */}
         <h1 className="mt-7 max-w-[640px] font-display text-[3.1rem] font-black leading-[0.96] tracking-[-0.055em] sm:text-6xl lg:text-[5rem]">
-          {currentSlideData.headline.split('\n').map((line, index) => (
+          {currentSlideData.headline.split("\n").map((line, index) => (
             <>
               {line}
-              {index < currentSlideData.headline.split('\n').length - 1 && <br />}
+              {index < currentSlideData.headline.split("\n").length - 1 && (
+                <br />
+              )}
             </>
           ))}
         </h1>
@@ -207,50 +270,62 @@ export default function HeroSlideshow() {
           {/* Primary Button */}
           <Link
             href={currentSlideData.primaryButtonHref}
-            className={`inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[#D62F37] px-7 text-sm font-black text-white shadow-[0_14px_35px_rgba(214,47,55,.28)] ${reducedMotion ? 'transition-none' : 'transition'} hover:bg-[#E53A42] active:scale-[.97]`}
+            className={`inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[#D62F37] px-7 text-sm font-black text-white shadow-[0_14px_35px_rgba(214,47,55,.28)] ${reducedMotion ? "transition-none" : "transition"} hover:bg-[#E53A42] active:scale-[.97]`}
           >
             {currentSlideData.primaryButtonText}
             <ArrowRight className="size-4" />
           </Link>
 
           {/* Secondary Button (if applicable) */}
-          {currentSlideData.showSecondaryButton && currentSlideData.secondaryButtonText && currentSlideData.secondaryButtonHref && (
-            <>
-              {/* Special handling for delivery area button to preserve existing behavior */}
-              {currentSlideData.secondaryButtonHref === '#' ? (
-                <button
-                  className={`inline-flex h-13 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-6 text-sm font-bold text-white backdrop-blur ${reducedMotion ? 'transition-none' : 'transition'} hover:bg-white/15`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    // Replicate the existing delivery area button behavior
-                    toast.success(
-                      location ? "Delivery area selected" : "Choose a delivery area first",
-                      { description: location ? `${location.area}, ${location.city} · ${location.pincode}` : "Use your current location to check availability." }
-                    );
-                  }}
-                >
-                  <MapPin className="size-4 text-[#86CC68]" />
-                  {currentSlideData.secondaryButtonText}
-                </button>
-              ) : (
-                <Link
-                  href={currentSlideData.secondaryButtonHref}
-                  className={`inline-flex h-13 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-6 text-sm font-bold text-white backdrop-blur ${reducedMotion ? 'transition-none' : 'transition'} hover:bg-white/15`}
-                >
-                  <MapPin className="size-4 text-[#86CC68]" />
-                  {currentSlideData.secondaryButtonText}
-                </Link>
-              )}
-            </>
-          )}
+          {currentSlideData.showSecondaryButton &&
+            currentSlideData.secondaryButtonText &&
+            currentSlideData.secondaryButtonHref && (
+              <>
+                {/* Special handling for delivery area button to preserve existing behavior */}
+                {currentSlideData.secondaryButtonHref === "#" ? (
+                  <button
+                    className={`inline-flex h-13 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-6 text-sm font-bold text-white backdrop-blur ${reducedMotion ? "transition-none" : "transition"} hover:bg-white/15`}
+                    onClick={e => {
+                      e.preventDefault();
+                      // Replicate the existing delivery area button behavior
+                      toast.success(
+                        location
+                          ? "Delivery area selected"
+                          : "Choose a delivery area first",
+                        {
+                          description: location
+                            ? `${location.area}, ${location.city} Â· ${location.pincode}`
+                            : "Use your current location to check availability.",
+                        }
+                      );
+                    }}
+                  >
+                    <MapPin className="size-4 text-[#86CC68]" />
+                    {currentSlideData.secondaryButtonText}
+                  </button>
+                ) : (
+                  <Link
+                    href={currentSlideData.secondaryButtonHref}
+                    className={`inline-flex h-13 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-6 text-sm font-bold text-white backdrop-blur ${reducedMotion ? "transition-none" : "transition"} hover:bg-white/15`}
+                  >
+                    <MapPin className="size-4 text-[#86CC68]" />
+                    {currentSlideData.secondaryButtonText}
+                  </Link>
+                )}
+              </>
+            )}
         </div>
 
         {/* Benefits Section (only on first slide) */}
         {currentSlideData.id === 1 && (
           <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-xs font-bold text-white/65">
-            <span className="flex items-center gap-2">
-              <BadgeCheck className="size-4 text-[#86CC68]" /> {googleBusiness.rating.toFixed(1)} Google rating · {googleBusiness.reviewCount.toLocaleString()} reviews
-            </span>
+            {googleBusiness && (
+              <span className="flex items-center gap-2">
+                <BadgeCheck className="size-4 text-[#86CC68]" />{" "}
+                {googleBusiness.rating.toFixed(1)} Google rating Â·{" "}
+                {googleBusiness.reviewCount.toLocaleString()} reviews
+              </span>
+            )}
             <span className="flex items-center gap-2">
               <BadgeCheck className="size-4 text-[#86CC68]" /> No frozen stock
             </span>
@@ -264,20 +339,21 @@ export default function HeroSlideshow() {
       {/* Navigation Arrows */}
       <button
         onClick={() => {
-          const prev = (currentSlide - 1 + slides.length) % slides.length;
+          const prev =
+            (currentSlide - 1 + heroSlides.length) % heroSlides.length;
           goToSlide(prev);
         }}
-        className={`absolute left-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-white/20 text-white/50 hover:bg-white/30 hover:text-white ${reducedMotion ? 'transition-none' : 'transition-colors'} disabled:opacity-50`}
+        className={`absolute left-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-white/20 text-white/50 hover:bg-white/30 hover:text-white ${reducedMotion ? "transition-none" : "transition-colors"} disabled:opacity-50`}
         aria-label="Previous slide"
       >
         <ArrowLeft className="size-5" />
       </button>
       <button
         onClick={() => {
-          const next = (currentSlide + 1) % slides.length;
+          const next = (currentSlide + 1) % heroSlides.length;
           goToSlide(next);
         }}
-        className={`absolute right-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-white/20 text-white/50 hover:bg-white/30 hover:text-white ${reducedMotion ? 'transition-none' : 'transition-colors'} disabled:opacity-50`}
+        className={`absolute right-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-white/20 text-white/50 hover:bg-white/30 hover:text-white ${reducedMotion ? "transition-none" : "transition-colors"} disabled:opacity-50`}
         aria-label="Next slide"
       >
         <ArrowRight className="size-5" />
@@ -289,9 +365,9 @@ export default function HeroSlideshow() {
           <button
             key={index}
             onClick={() => goToSlide(index)}
-            className={`h-3 w-3 rounded-full bg-white/30 hover:bg-white/50 focus-visible:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${reducedMotion ? 'transition-none' : 'transition-colors'} ${currentSlide === index ? 'bg-white/60' : ''}`}
+            className={`h-3 w-3 rounded-full bg-white/30 hover:bg-white/50 focus-visible:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${reducedMotion ? "transition-none" : "transition-colors"} ${currentSlide === index ? "bg-white/60" : ""}`}
             aria-label={`Go to slide ${index + 1}`}
-            aria-current={currentSlide === index ? 'true' : undefined}
+            aria-current={currentSlide === index ? "true" : undefined}
           />
         ))}
       </div>

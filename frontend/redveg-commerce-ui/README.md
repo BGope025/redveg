@@ -93,7 +93,7 @@ client/
       storefront/     Customer header, footer, cards, and shell
       ui/             Shared shadcn/Radix primitives
     contexts/         Persistent cart and theme state
-    data/             Mock products, orders, offers, and dashboard data
+      data/             Static UI metadata only; business data comes from the API
     lib/              Shared assets and utilities
     pages/
       admin/           Admin routes
@@ -107,9 +107,9 @@ shared/                Template compatibility types/constants
 
 ## Important implementation notes
 
-### Frontend-only status
+### Backend-connected status
 
-The current app does not contain production authentication, a database, payment handling, inventory locking, or real order persistence. The admin routes are intentionally open in this prototype. Add authentication and role-based authorization before production use.
+The storefront and admin panel read business data from the backend API. Admin routes require the dedicated admin session, and order, catalog, delivery, campaign, settings, and analytics changes are persisted in the configured database.
 
 ### Order workflow
 
@@ -121,17 +121,11 @@ The intended checkout sequence is:
 4. WhatsApp opens with the prepared order summary.
 5. Admin staff contacts the customer and manually chooses **Confirm order** or **Cancel order**.
 
-The current frontend simulates the save operation locally so the interface can be reviewed without a backend.
+Order creation is persisted by the backend before the customer is offered the prepared WhatsApp summary.
 
 ### Product and order data
 
-Edit prototype data in:
-
-```text
-client/src/data/mock.ts
-```
-
-Keep shared interfaces in:
+Products, variants, stock, orders, customers, and reports are fetched from the backend API. Keep shared interfaces in:
 
 ```text
 client/src/types/commerce.ts
@@ -149,13 +143,12 @@ The optimized media is remotely hosted so a fresh clone displays correctly witho
 
 ### Environment variables
 
-No environment variables are required to run the current frontend. When API integration begins, use a local `.env.local` file for public browser configuration and keep it untracked. Never commit real secrets or private API keys. Client-side `VITE_*` variables are visible in the browser and must not contain secrets.
+Use a local `.env.local` file for the public backend URL and keep it untracked. Never commit real secrets or private API keys. Client-side `VITE_*` variables are visible in the browser and must not contain secrets.
 
 ## Before production
 
-- Connect customer and admin screens to authenticated backend APIs.
-- Add secure staff login and role-based access controls.
-- Replace mock catalogue, order, delivery, and reporting data.
+- Keep customer and admin screens connected to authenticated backend APIs.
+- Keep secure staff login and role-based access controls enabled.
 - Validate prices, stock, delivery fees, coupons, and totals on the server.
 - Store an order before opening WhatsApp and make order creation idempotent.
 - Add automated component, accessibility, and end-to-end tests.

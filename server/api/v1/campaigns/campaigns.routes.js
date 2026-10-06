@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../../../middleware/auth.middleware');
+const { protect, authorize } = require('../../../middleware/auth.middleware');
 const {
   getCampaigns,
   getCampaignById,
@@ -16,7 +16,7 @@ router.get('/active', resolveActiveCampaign); // Get active campaign based on ti
 router.get('/:id', getCampaignById); // Get specific campaign by ID
 
 // Protected routes (require authentication)
-router.use(protect);
+router.use(protect, authorize('admin'));
 
 router.post('/', createCampaign); // Create new campaign
 router.put('/:id', updateCampaign); // Update campaign

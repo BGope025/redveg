@@ -10,23 +10,34 @@ interface ProtectedRouteProps extends RouteProps {
 export function ProtectedRoute({
   adminOnly = false,
   redirectTo = "/login",
-  children
+  children,
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isAdmin, isLoading } = useAuth();
+  const { isAuthenticated, isAdmin, isLoading, adminLoading } = useAuth();
 
   if (adminOnly) {
-    // Admin uses a different authentication method.
-    // Bypassing frontend OAuth check for admin routes.
+    if (adminLoading) {
+      return (
+        <div className="flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-t-[#B4232C] border-[#E9D8D4]" />
+            <p className="mt-2 text-sm">Verifying admin session...</p>
+          </div>
+        </div>
+      );
+    }
+    if (!isAdmin) return <Redirect replace to="/admin/login" />;
     return <>{children}</>;
   }
 
   if (isLoading) {
-    return <div className="flex min-h-screen items-center justify-center">
-      <div className="text-center">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-t-[#B4232C] border-[#E9D8D4]"></div>
-        <p className="mt-2 text-sm">Loading...</p>
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-2 border-t-[#B4232C] border-[#E9D8D4]"></div>
+          <p className="mt-2 text-sm">Loading...</p>
+        </div>
       </div>
-    </div>;
+    );
   }
 
   if (!isAuthenticated) {

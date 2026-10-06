@@ -1,4 +1,4 @@
--- Seed data for Catalog Database
+﻿-- Seed data for Catalog Database
 -- Real products for RedVeg
 
 -- Clear existing data (for development)
@@ -9,56 +9,56 @@ DELETE FROM delivery_locations;
 
 -- Insert products
 INSERT INTO products (id, name, description, category, image_url, is_active) VALUES
-('PRD-1001', 'Desi Mutton', 'Desi Mutton / দেশি খাসির মাংস', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782765/redveg/catalog/Desi_Mutton.png', 1),
-('PRD-1002', 'Rewaji Mutton', 'Rewaji Mutton / রেওয়াজি খাসির মাংস', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782805/redveg/catalog/Rewaji_Mutton.png', 1),
-('PRD-1003', 'Mutton Keema', 'Mutton Keema / খাসির কিমা', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782796/redveg/catalog/Mutton_Keema.png', 1),
-('PRD-1004', 'Mutton Liver', 'Mutton Liver / খাসির লিভার', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782800/redveg/catalog/Mutton_Liver.png', 1),
-('PRD-1005', 'Chicken Curry Cut', 'Chicken Curry Cut / চিকেন কারি কাট', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782739/redveg/catalog/chicken_curry_cut.jpg', 1),
-('PRD-1006', 'Chicken Leg Side', 'Chicken Leg Side / চিকেন লেগ সাইড', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782741/redveg/catalog/chicken_legside.jpg', 1),
-('PRD-1007', 'Chicken Drumsticks', 'Chicken Drumsticks / চিকেন ड्रमस्टिक', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782740/redveg/catalog/chicken_drumstick.jpg', 1),
-('PRD-1008', 'Boneless Chicken', 'Boneless Chicken / বোনলেস চিকেন', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782737/redveg/catalog/boneless_chicken.jpg', 1),
-('PRD-1009', 'Chicken With Skin', 'Chicken With Skin / উইথ স্কিন চিকেন', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782750/redveg/catalog/Chicken_with_skin.png', 1),
-('PRD-1010', 'Deshi Chicken', 'Deshi Chicken / দেশি মুরগি', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782759/redveg/catalog/Deshi_Chicken.png', 1),
-('PRD-1011', 'Chicken Liver', 'Chicken Liver / চিকেন লিভার', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782745/redveg/catalog/Chicken_Liver.png', 1),
-('PRD-1012', 'Chapra Chingri', 'Chapra Chingri / চাপড়া চিংড়ি', 'prawns', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782738/redveg/catalog/chabra_chingri.jpg', 1),
-('PRD-1013', 'Golda Chingri', 'Golda Chingri / গলদা চিংড়ি', 'prawns', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782781/redveg/catalog/golda_chingri.jpg', 1),
-('PRD-1014', 'Bagda Chingri', 'Bagda Chingri / বাগদা চিংড়ি', 'prawns', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782725/redveg/catalog/baghda_chingri.png', 1),
-('PRD-1015', 'Sundarban Crab', 'Sundarban Crab / সুন্দরবন কাঁকড়া', 'crab', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782820/redveg/catalog/sundarban_crab.png', 1),
-('PRD-1016', 'Crab', 'Crab / কাঁকড়া', 'crab', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782754/redveg/catalog/crab.png', 1),
-('PRD-1017', 'Big Crab', 'Big Crab / বড় কাঁকড়া', 'crab', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782736/redveg/catalog/big_crab.png', 1),
-('PRD-1018', 'Gugli', 'Gugli / গুগলি', 'seasonal', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782785/redveg/catalog/gugli.png', 1),
-('PRD-1019', 'Duck Meat', 'Duck Meat / ডাক মিট', 'seasonal', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782774/redveg/catalog/duck_meat.png', 1),
-('PRD-1020', 'Bangladeshi Hilsa', 'Bangladeshi Hilsa / বাংলাদেশী ইলিশ', 'hilsa', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782731/redveg/catalog/bangladeshi_hilsha.png', 1),
-('PRD-1021', 'DimWala Hilsha', 'DimWala Hilsha / DimWala Hilsha', 'hilsha', 'https://example.com/product-1021.jpg', 0),
-('PRD-1022', 'Rui Kata', 'Rui Kata / রুই কাটা', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782808/redveg/catalog/rui_kata.jpg', 1),
-('PRD-1023', 'Rui Peti', 'Rui Peti / রুই পেটি', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782809/redveg/catalog/rui_peti.jpg', 1),
-('PRD-1024', 'Rui Gota (Whole)', 'Rui Gota (Whole) / রুই গোটা', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782816/redveg/catalog/rui.jpg', 1),
-('PRD-1025', 'Katla Kata', 'Katla Kata / কাতলা কাটা', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782789/redveg/catalog/katla.jpg', 1),
-('PRD-1026', 'Katla Only Peti', 'Katla Only Peti / কাতলা শুধু পেটি', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782788/redveg/catalog/katla_peti.jpg', 1),
-('PRD-1027', 'Katla Gota', 'Katla Gota / কাতলা গোটা', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782789/redveg/catalog/katla.jpg', 1),
-('PRD-1028', 'Pomfret', 'Pomfret / পমফ্রেট', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782778/redveg/catalog/fresh_pomfret.jpg', 1),
-('PRD-1029', 'Bhetki Fish', 'Bhetki Fish / ভেটকি মাছ', 'fish', 'https://example.com/product-1029.jpg', 1),
-('PRD-1030', 'Bhetki Fillet (Fish fry)', 'Bhetki Fillet (Fish fry) / ভেটকি ফিলে', 'fish', 'https://example.com/product-1030.jpg', 1),
-('PRD-1031', 'Topse', 'Topse / টপসে মাছ', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782780/redveg/catalog/fresh_topse.jpg', 1),
-('PRD-1032', 'Kajoli', 'Kajoli / কাজলি মাছ', 'fish', 'https://example.com/product-1032.jpg', 1),
-('PRD-1033', 'Aar Fish', 'Aar Fish / আড় মাছ', 'fish', 'https://example.com/product-1033.jpg', 1),
-('PRD-1034', 'Boal Kata', 'Boal Kata / বোয়াল কাটা', 'fish', 'https://example.com/product-1034.jpg', 1),
-('PRD-1035', 'Aar Fish Big', 'Aar Fish Big / আড় মাছ বড়', 'fish', 'https://example.com/product-1035.jpg', 1),
-('PRD-1036', 'Koi', 'Koi / কৈ মাছ', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782790/redveg/catalog/koi_maach.jpg', 1),
-('PRD-1037', 'Janto Tangra', 'Janto Tangra / জ্যান্ত ট্যাংরা', 'fish', 'https://example.com/product-1037.jpg', 1),
-('PRD-1038', 'Telapia', 'Telapia / তেলাপিয়া মাছ', 'fish', 'https://example.com/product-1038.jpg', 1),
-('PRD-1039', 'Padba', 'Padba / পাদবা মাছ', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782766/redveg/catalog/desi_pabda.jpg', 1),
-('PRD-1040', 'Lote Fish', 'Lote Fish / লোটে মাছ', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782791/redveg/catalog/lote_fish.jpg', 1),
-('PRD-1041', 'Bata Fish', 'Bata Fish / বাটা মাছ', 'fish', 'https://example.com/product-1041.jpg', 1),
-('PRD-1042', 'Gule', 'Gule / গুলে মাছ', 'fish', 'https://example.com/product-1042.jpg', 1),
-('PRD-1043', 'Pakal', 'Pakal / পাকাল মাছ', 'fish', 'https://example.com/product-1043.jpg', 1),
-('PRD-1044', 'Deshi Shol', 'Deshi Shol / দেশি শোল', 'deshi fish', 'https://example.com/product-1044.jpg', 1),
-('PRD-1045', 'Deshi Singi', 'Deshi Singi / দেশি শিঙি', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782769/redveg/catalog/desi_singi.jpg', 1),
-('PRD-1046', 'Deshi Magur', 'Deshi Magur / দেশি মাগুর', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782761/redveg/catalog/desi_magur.jpg', 1),
-('PRD-1047', 'Deshi Tangra', 'Deshi Tangra / দেশি ট্যাংরা', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782770/redveg/catalog/desi_tangra.jpg', 1),
-('PRD-1048', 'Deshi Parse', 'Deshi Parse / দেশি পার্শে', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782768/redveg/catalog/desi_parshe.jpg', 1),
-('PRD-1049', 'Deshi Puti', 'Deshi Puti / দেশি পুঁটি', 'deshi fish', 'https://example.com/product-1049.jpg', 1),
-('PRD-1050', 'Fish Egg', 'Fish Egg / মাছের ডিম', 'deshi fish', 'https://example.com/product-1050.jpg', 1);
+('PRD-1001', 'Desi Mutton', 'Desi Mutton / à¦¦à§‡à¦¶à¦¿ à¦–à¦¾à¦¸à¦¿à¦° à¦®à¦¾à¦‚à¦¸', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782765/redveg/catalog/Desi_Mutton.png', 1),
+('PRD-1002', 'Rewaji Mutton', 'Rewaji Mutton / à¦°à§‡à¦“à§Ÿà¦¾à¦œà¦¿ à¦–à¦¾à¦¸à¦¿à¦° à¦®à¦¾à¦‚à¦¸', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782805/redveg/catalog/Rewaji_Mutton.png', 1),
+('PRD-1003', 'Mutton Keema', 'Mutton Keema / à¦–à¦¾à¦¸à¦¿à¦° à¦•à¦¿à¦®à¦¾', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782796/redveg/catalog/Mutton_Keema.png', 1),
+('PRD-1004', 'Mutton Liver', 'Mutton Liver / à¦–à¦¾à¦¸à¦¿à¦° à¦²à¦¿à¦­à¦¾à¦°', 'mutton', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782800/redveg/catalog/Mutton_Liver.png', 1),
+('PRD-1005', 'Chicken Curry Cut', 'Chicken Curry Cut / à¦šà¦¿à¦•à§‡à¦¨ à¦•à¦¾à¦°à¦¿ à¦•à¦¾à¦Ÿ', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782739/redveg/catalog/chicken_curry_cut.jpg', 1),
+('PRD-1006', 'Chicken Leg Side', 'Chicken Leg Side / à¦šà¦¿à¦•à§‡à¦¨ à¦²à§‡à¦— à¦¸à¦¾à¦‡à¦¡', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782741/redveg/catalog/chicken_legside.jpg', 1),
+('PRD-1007', 'Chicken Drumsticks', 'Chicken Drumsticks / à¦šà¦¿à¦•à§‡à¦¨ à¤¡à¥à¤°à¤®à¤¸à¥à¤Ÿà¤¿à¤•', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782740/redveg/catalog/chicken_drumstick.jpg', 1),
+('PRD-1008', 'Boneless Chicken', 'Boneless Chicken / à¦¬à§‹à¦¨à¦²à§‡à¦¸ à¦šà¦¿à¦•à§‡à¦¨', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782737/redveg/catalog/boneless_chicken.jpg', 1),
+('PRD-1009', 'Chicken With Skin', 'Chicken With Skin / à¦‰à¦‡à¦¥ à¦¸à§à¦•à¦¿à¦¨ à¦šà¦¿à¦•à§‡à¦¨', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782750/redveg/catalog/Chicken_with_skin.png', 1),
+('PRD-1010', 'Deshi Chicken', 'Deshi Chicken / à¦¦à§‡à¦¶à¦¿ à¦®à§à¦°à¦—à¦¿', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782759/redveg/catalog/Deshi_Chicken.png', 1),
+('PRD-1011', 'Chicken Liver', 'Chicken Liver / à¦šà¦¿à¦•à§‡à¦¨ à¦²à¦¿à¦­à¦¾à¦°', 'chicken', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782745/redveg/catalog/Chicken_Liver.png', 1),
+('PRD-1012', 'Chapra Chingri', 'Chapra Chingri / à¦šà¦¾à¦ªà§œà¦¾ à¦šà¦¿à¦‚à§œà¦¿', 'prawns', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782738/redveg/catalog/chabra_chingri.jpg', 1),
+('PRD-1013', 'Golda Chingri', 'Golda Chingri / à¦—à¦²à¦¦à¦¾ à¦šà¦¿à¦‚à§œà¦¿', 'prawns', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782781/redveg/catalog/golda_chingri.jpg', 1),
+('PRD-1014', 'Bagda Chingri', 'Bagda Chingri / à¦¬à¦¾à¦—à¦¦à¦¾ à¦šà¦¿à¦‚à§œà¦¿', 'prawns', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782725/redveg/catalog/baghda_chingri.png', 1),
+('PRD-1015', 'Sundarban Crab', 'Sundarban Crab / à¦¸à§à¦¨à§à¦¦à¦°à¦¬à¦¨ à¦•à¦¾à¦à¦•à§œà¦¾', 'crab', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782820/redveg/catalog/sundarban_crab.png', 1),
+('PRD-1016', 'Crab', 'Crab / à¦•à¦¾à¦à¦•à§œà¦¾', 'crab', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782754/redveg/catalog/crab.png', 1),
+('PRD-1017', 'Big Crab', 'Big Crab / à¦¬à§œ à¦•à¦¾à¦à¦•à§œà¦¾', 'crab', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782736/redveg/catalog/big_crab.png', 1),
+('PRD-1018', 'Gugli', 'Gugli / à¦—à§à¦—à¦²à¦¿', 'seasonal', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782785/redveg/catalog/gugli.png', 1),
+('PRD-1019', 'Duck Meat', 'Duck Meat / à¦¡à¦¾à¦• à¦®à¦¿à¦Ÿ', 'seasonal', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782774/redveg/catalog/duck_meat.png', 1),
+('PRD-1020', 'Bangladeshi Hilsa', 'Bangladeshi Hilsa / à¦¬à¦¾à¦‚à¦²à¦¾à¦¦à§‡à¦¶à§€ à¦‡à¦²à¦¿à¦¶', 'hilsa', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782731/redveg/catalog/bangladeshi_hilsha.png', 1),
+('PRD-1021', 'DimWala Hilsha', 'DimWala Hilsha / DimWala Hilsha', 'hilsha', NULL, 0),
+('PRD-1022', 'Rui Kata', 'Rui Kata / à¦°à§à¦‡ à¦•à¦¾à¦Ÿà¦¾', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782808/redveg/catalog/rui_kata.jpg', 1),
+('PRD-1023', 'Rui Peti', 'Rui Peti / à¦°à§à¦‡ à¦ªà§‡à¦Ÿà¦¿', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782809/redveg/catalog/rui_peti.jpg', 1),
+('PRD-1024', 'Rui Gota (Whole)', 'Rui Gota (Whole) / à¦°à§à¦‡ à¦—à§‹à¦Ÿà¦¾', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782816/redveg/catalog/rui.jpg', 1),
+('PRD-1025', 'Katla Kata', 'Katla Kata / à¦•à¦¾à¦¤à¦²à¦¾ à¦•à¦¾à¦Ÿà¦¾', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782789/redveg/catalog/katla.jpg', 1),
+('PRD-1026', 'Katla Only Peti', 'Katla Only Peti / à¦•à¦¾à¦¤à¦²à¦¾ à¦¶à§à¦§à§ à¦ªà§‡à¦Ÿà¦¿', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782788/redveg/catalog/katla_peti.jpg', 1),
+('PRD-1027', 'Katla Gota', 'Katla Gota / à¦•à¦¾à¦¤à¦²à¦¾ à¦—à§‹à¦Ÿà¦¾', 'rui & katla', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782789/redveg/catalog/katla.jpg', 1),
+('PRD-1028', 'Pomfret', 'Pomfret / à¦ªà¦®à¦«à§à¦°à§‡à¦Ÿ', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782778/redveg/catalog/fresh_pomfret.jpg', 1),
+('PRD-1029', 'Bhetki Fish', 'Bhetki Fish / à¦­à§‡à¦Ÿà¦•à¦¿ à¦®à¦¾à¦›', 'fish', NULL, 1),
+('PRD-1030', 'Bhetki Fillet (Fish fry)', 'Bhetki Fillet (Fish fry) / à¦­à§‡à¦Ÿà¦•à¦¿ à¦«à¦¿à¦²à§‡', 'fish', NULL, 1),
+('PRD-1031', 'Topse', 'Topse / à¦Ÿà¦ªà¦¸à§‡ à¦®à¦¾à¦›', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782780/redveg/catalog/fresh_topse.jpg', 1),
+('PRD-1032', 'Kajoli', 'Kajoli / à¦•à¦¾à¦œà¦²à¦¿ à¦®à¦¾à¦›', 'fish', NULL, 1),
+('PRD-1033', 'Aar Fish', 'Aar Fish / à¦†à§œ à¦®à¦¾à¦›', 'fish', NULL, 1),
+('PRD-1034', 'Boal Kata', 'Boal Kata / à¦¬à§‹à¦¯à¦¼à¦¾à¦² à¦•à¦¾à¦Ÿà¦¾', 'fish', NULL, 1),
+('PRD-1035', 'Aar Fish Big', 'Aar Fish Big / à¦†à§œ à¦®à¦¾à¦› à¦¬à§œ', 'fish', NULL, 1),
+('PRD-1036', 'Koi', 'Koi / à¦•à§ˆ à¦®à¦¾à¦›', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782790/redveg/catalog/koi_maach.jpg', 1),
+('PRD-1037', 'Janto Tangra', 'Janto Tangra / à¦œà§à¦¯à¦¾à¦¨à§à¦¤ à¦Ÿà§à¦¯à¦¾à¦‚à¦°à¦¾', 'fish', NULL, 1),
+('PRD-1038', 'Telapia', 'Telapia / à¦¤à§‡à¦²à¦¾à¦ªà¦¿à§Ÿà¦¾ à¦®à¦¾à¦›', 'fish', NULL, 1),
+('PRD-1039', 'Padba', 'Padba / à¦ªà¦¾à¦¦à¦¬à¦¾ à¦®à¦¾à¦›', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782766/redveg/catalog/desi_pabda.jpg', 1),
+('PRD-1040', 'Lote Fish', 'Lote Fish / à¦²à§‹à¦Ÿà§‡ à¦®à¦¾à¦›', 'fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782791/redveg/catalog/lote_fish.jpg', 1),
+('PRD-1041', 'Bata Fish', 'Bata Fish / à¦¬à¦¾à¦Ÿà¦¾ à¦®à¦¾à¦›', 'fish', NULL, 1),
+('PRD-1042', 'Gule', 'Gule / à¦—à§à¦²à§‡ à¦®à¦¾à¦›', 'fish', NULL, 1),
+('PRD-1043', 'Pakal', 'Pakal / à¦ªà¦¾à¦•à¦¾à¦² à¦®à¦¾à¦›', 'fish', NULL, 1),
+('PRD-1044', 'Deshi Shol', 'Deshi Shol / à¦¦à§‡à¦¶à¦¿ à¦¶à§‹à¦²', 'deshi fish', NULL, 1),
+('PRD-1045', 'Deshi Singi', 'Deshi Singi / à¦¦à§‡à¦¶à¦¿ à¦¶à¦¿à¦™à¦¿', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782769/redveg/catalog/desi_singi.jpg', 1),
+('PRD-1046', 'Deshi Magur', 'Deshi Magur / à¦¦à§‡à¦¶à¦¿ à¦®à¦¾à¦—à§à¦°', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782761/redveg/catalog/desi_magur.jpg', 1),
+('PRD-1047', 'Deshi Tangra', 'Deshi Tangra / à¦¦à§‡à¦¶à¦¿ à¦Ÿà§à¦¯à¦¾à¦‚à¦°à¦¾', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782770/redveg/catalog/desi_tangra.jpg', 1),
+('PRD-1048', 'Deshi Parse', 'Deshi Parse / à¦¦à§‡à¦¶à¦¿ à¦ªà¦¾à¦°à§à¦¶à§‡', 'deshi fish', 'https://res.cloudinary.com/silns2x1/image/upload/f_auto,q_auto,w_600,c_fill/v1790782768/redveg/catalog/desi_parshe.jpg', 1),
+('PRD-1049', 'Deshi Puti', 'Deshi Puti / à¦¦à§‡à¦¶à¦¿ à¦ªà§à¦à¦Ÿà¦¿', 'deshi fish', NULL, 1),
+('PRD-1050', 'Fish Egg', 'Fish Egg / à¦®à¦¾à¦›à§‡à¦° à¦¡à¦¿à¦®', 'deshi fish', NULL, 1);
 
 -- Insert variants
 INSERT INTO variants (id, product_id, sku, size, weight, price, stock_count) VALUES
@@ -126,16 +126,6 @@ INSERT INTO variants (id, product_id, sku, size, weight, price, stock_count) VAL
 ('VAR-1062', 'PRD-1048', 'RV-DES-DP-300G-V2', 'Standard', '300 g', 269, 10),
 ('VAR-1063', 'PRD-1050', 'RV-DES-FE-500G', 'Roe / Egg', '500 g', 199, 10);
 
--- Insert sample UI settings (banners)
-INSERT INTO ui_settings (id, type, name, image_url, link_url, display_order, is_active) VALUES
-('UI-1001', 'banner', 'Summer Sale Banner', 'https://example.com/banner1.jpg', 'https://redveg.com/sale', 1, 1),
-('UI-1002', 'banner', 'Fresh Catch Banner', 'https://example.com/banner2.jpg', 'https://redveg.com/fish', 2, 1),
-('UI-1003', 'banner', 'Meat Specials Banner', 'https://example.com/banner3.jpg', 'https://redveg.com/meat', 3, 1);
-
--- Insert sample logo
-INSERT INTO ui_settings (id, type, name, image_url, link_url, display_order, is_active) VALUES
-('UI-2001', 'logo', 'RedVeg Logo', 'https://example.com/logo.png', NULL, 0, 1);
-
 -- Insert delivery locations (from fallbackLocations array)
 INSERT INTO delivery_locations (pincode, area, city, state, is_servicealbe) VALUES
 ('700001', 'Kolkata GPO', 'Kolkata', 'West Bengal', 1),
@@ -161,3 +151,4 @@ INSERT INTO delivery_locations (pincode, area, city, state, is_servicealbe) VALU
 ('700021', 'Shakespeare Sarani', 'Kolkata', 'West Bengal', 1),
 ('700022', 'Park Street', 'Kolkata', 'West Bengal', 1),
 ('700023', 'Camac Street', 'Kolkata', 'West Bengal', 1);
+

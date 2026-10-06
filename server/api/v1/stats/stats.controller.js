@@ -4,6 +4,19 @@ const logger = require('../../../utils/logger');
 const { ensureImportedSalesSchema } = require('./imported-sales.schema');
 const { ensureCustomerInvoicePaymentsSchema } = require('../customers/customer-invoice-payments.schema');
 const { createPaymentOverrideMap, getEffectiveInvoice, summarizeImportedInvoices } = require('../../../services/imported-sales-payments.service');
+const { ensureFinancialTransactionsSchema } = require('./financial-transactions.schema');
+
+const FINANCIAL_TRANSACTION_TYPES = new Set(['purchase', 'expense']);
+
+const getTransactionPeriod = (date, bucket) => {
+  if (bucket === 'day') return date;
+  if (bucket === 'month') return date.slice(0, 7);
+  const parsed = new Date(`${date}T00:00:00+05:30`);
+  const start = new Date(parsed.getFullYear(), 0, 1);
+  const day = Math.floor((parsed - start) / 86400000);
+  const week = Math.ceil((day + start.getDay() + 1) / 7);
+  return `${date.slice(0, 4)}-${String(week).padStart(2, '0')}`;
+};
 
 /**
  * Get stats for admin dashboard
@@ -142,6 +155,7 @@ const getRevenueStats = async (req, res) => {
     const ordersDb = await getDatabaseConnection('orders');
 
     await ensureImportedSalesSchema(ordersDb);
+    await ensureFinancialTransactionsSchema(ordersDb);
 
     // Validate bucket
     const validBuckets = ['day', 'week', 'month'];
@@ -319,6 +333,32 @@ const getRevenueStats = async (req, res) => {
     }
     const reportSeriesResult = { rows: [...reportPeriods.values()] };
 
+    const financialFilters = [];
+    const financialArgs = [];
+    if (startDate) {
+      financialFilters.push('transaction_date >= ?');
+      financialArgs.push(startDate);
+    }
+    if (endDate) {
+      financialFilters.push('transaction_date <= ?');
+      financialArgs.push(endDate);
+    }
+    const financialResult = await ordersDb.execute({
+      sql: `SELECT id, transaction_type, transaction_date, category, description, amount
+            FROM financial_transactions
+            WHERE ${financialFilters.length ? financialFilters.join(' AND ') : '1 = 1'}
+            ORDER BY transaction_date DESC, created_at DESC`,
+      args: financialArgs,
+    });
+    const financialByPeriod = new Map();
+    for (const row of financialResult.rows) {
+      const period = getTransactionPeriod(String(row.transaction_date), bucket || 'month');
+      const point = financialByPeriod.get(period) || { purchase: 0, expenses: 0 };
+      if (String(row.transaction_type) === 'purchase') point.purchase += Number(row.amount) || 0;
+      if (String(row.transaction_type) === 'expense') point.expenses += Number(row.amount) || 0;
+      financialByPeriod.set(period, point);
+    }
+
     // Format series
     const series = result.rows.map((row) => {
       let label = row.period;
@@ -362,6 +402,27 @@ const getRevenueStats = async (req, res) => {
       point.importedCollected = Number.parseFloat(row.imported_received) || 0;
       chartSeriesByPeriod.set(period, point);
     }
+    for (const [period, financial] of financialByPeriod.entries()) {
+      const point = chartSeriesByPeriod.get(period) || {
+        period,
+        label: reportLabel(period),
+        revenue: 0,
+        orders: 0,
+        importedInvoiced: 0,
+        importedCollected: 0,
+      };
+      point.purchase = Number(financial.purchase.toFixed(2));
+      point.expenses = Number(financial.expenses.toFixed(2));
+      point.grossProfit = Number((point.revenue - point.purchase).toFixed(2));
+      point.netProfit = Number((point.grossProfit - point.expenses).toFixed(2));
+      chartSeriesByPeriod.set(period, point);
+    }
+    for (const point of chartSeriesByPeriod.values()) {
+      point.purchase = Number(point.purchase || 0);
+      point.expenses = Number(point.expenses || 0);
+      point.grossProfit = Number((Number(point.revenue || 0) - point.purchase).toFixed(2));
+      point.netProfit = Number((point.grossProfit - point.expenses).toFixed(2));
+    }
     const chartSeries = [...chartSeriesByPeriod.values()].sort((a, b) => a.period.localeCompare(b.period));
 
     // Determine overall summary for the range
@@ -369,6 +430,14 @@ const getRevenueStats = async (req, res) => {
     const totalOrders = series.reduce((sum, s) => sum + s.orders, 0);
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
     const lifetimeRevenue = parseFloat(lifetimeResult.rows[0]?.lifetime_revenue) || 0;
+    const purchaseTotal = financialResult.rows
+      .filter((row) => String(row.transaction_type) === 'purchase')
+      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    const expenseTotal = financialResult.rows
+      .filter((row) => String(row.transaction_type) === 'expense')
+      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    const grossProfit = totalRevenue - purchaseTotal;
+    const netProfit = grossProfit - expenseTotal;
     const importedRow = reportSummaryResult.rows[0] || {};
     const importedSales = {
       invoiceCount: Number(importedRow.invoice_count) || 0,
@@ -385,6 +454,13 @@ const getRevenueStats = async (req, res) => {
       periodRevenue: Math.round(totalRevenue),
       orderCount: totalOrders,
       averageOrderValue: Math.round(avgOrderValue),
+      purchaseTotal: Number(purchaseTotal.toFixed(2)),
+      expenseTotal: Number(expenseTotal.toFixed(2)),
+      grossProfit: Number(grossProfit.toFixed(2)),
+      grossMarginPercent: totalRevenue > 0 ? Number(((grossProfit / totalRevenue) * 100).toFixed(2)) : null,
+      netProfit: Number(netProfit.toFixed(2)),
+      netMarginPercent: totalRevenue > 0 ? Number(((netProfit / totalRevenue) * 100).toFixed(2)) : null,
+      financialTransactionCount: financialResult.rows.length,
       todayRevenue: 0, // we could compute today separately but not required for this endpoint
       thisMonthRevenue: 0,
       previousPeriodRevenue: 0,
@@ -406,6 +482,7 @@ const getRevenueStats = async (req, res) => {
         summary: summary,
         importedSales,
         series: chartSeries,
+        financialTransactions: financialResult.rows,
       },
     });
   } catch (error) {
@@ -414,7 +491,79 @@ const getRevenueStats = async (req, res) => {
   }
 };
 
+const getFinancialTransactions = async (req, res) => {
+  try {
+    const ordersDb = await getDatabaseConnection('orders');
+    await ensureFinancialTransactionsSchema(ordersDb);
+    const result = await ordersDb.execute({
+      sql: `SELECT id, transaction_type, transaction_date, category, description, amount, created_at
+            FROM financial_transactions ORDER BY transaction_date DESC, created_at DESC`,
+      args: [],
+    });
+    res.status(200).json({ success: true, data: result.rows });
+  } catch (error) {
+    logger.error('Error fetching financial transactions:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const createFinancialTransaction = async (req, res) => {
+  try {
+    const { transactionType, transactionDate, category, description, amount } = req.body || {};
+    const normalizedType = String(transactionType || '').trim().toLowerCase();
+    const normalizedDate = String(transactionDate || '').trim();
+    const normalizedCategory = String(category || '').trim();
+    const normalizedDescription = String(description || '').trim();
+    const numericAmount = Number(amount);
+    if (!FINANCIAL_TRANSACTION_TYPES.has(normalizedType)) {
+      return res.status(400).json({ success: false, message: 'Transaction type must be purchase or expense' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate) || Number.isNaN(Date.parse(`${normalizedDate}T00:00:00Z`))) {
+      return res.status(400).json({ success: false, message: 'A valid transaction date is required' });
+    }
+    if (!normalizedCategory || !normalizedDescription || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Category, description, and a positive amount are required' });
+    }
+    const ordersDb = await getDatabaseConnection('orders');
+    await ensureFinancialTransactionsSchema(ordersDb);
+    const id = `FIN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    await ordersDb.execute({
+      sql: `INSERT INTO financial_transactions
+        (id, transaction_type, transaction_date, category, description, amount, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      args: [id, normalizedType, normalizedDate, normalizedCategory, normalizedDescription, Number(numericAmount.toFixed(2))],
+    });
+    const created = await ordersDb.execute({
+      sql: 'SELECT id, transaction_type, transaction_date, category, description, amount, created_at FROM financial_transactions WHERE id = ?',
+      args: [id],
+    });
+    res.status(201).json({ success: true, data: created.rows[0] });
+  } catch (error) {
+    logger.error('Error creating financial transaction:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+const deleteFinancialTransaction = async (req, res) => {
+  try {
+    const ordersDb = await getDatabaseConnection('orders');
+    await ensureFinancialTransactionsSchema(ordersDb);
+    const result = await ordersDb.execute({
+      sql: 'DELETE FROM financial_transactions WHERE id = ?',
+      args: [String(req.params.id || '')],
+    });
+    if (!result.rowsAffected) return res.status(404).json({ success: false, message: 'Financial transaction not found' });
+    res.status(200).json({ success: true });
+  } catch (error) {
+    logger.error('Error deleting financial transaction:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   getStats,
   getRevenueStats,
+  getFinancialTransactions,
+  createFinancialTransaction,
+  deleteFinancialTransaction,
 };

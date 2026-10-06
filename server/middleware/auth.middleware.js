@@ -8,13 +8,13 @@ const { jwtSecret } = require('../config/env');
 const protect = (req, res, next) => {
   try {
     // Get token from cookies or Authorization header
-    console.log('Cookies received:', req.cookies);
     const token = req.cookies?.token || (req.headers.authorization && req.headers.authorization.split(' ')[1]);
 
     if (!token) {
-      // MOCK ADMIN FOR DEVELOPMENT TO PREVENT 401
-      req.user = { userId: 'admin', username: 'Admin', role: 'admin' };
-      return next();
+      return res.status(401).json({
+        success: false,
+        message: 'Admin authentication required.'
+      });
     }
 
     // Verify token
@@ -30,9 +30,10 @@ const protect = (req, res, next) => {
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-      // MOCK ADMIN FOR DEVELOPMENT TO PREVENT 401 on expired token
-      req.user = { userId: 'admin', username: 'Admin', role: 'admin' };
-      return next();
+      return res.status(401).json({
+        success: false,
+        message: 'Admin session is invalid or expired.'
+      });
     }
 
     if (error.type === 'auth-error') {

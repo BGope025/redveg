@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 const { getDatabaseConnection } = require('../../../config/turso');
 const { generateAuthError } = require('../../../utils/error-classes');
+const { comparePassword } = require('../../../utils/password.utils');
 const logger = require('../../../utils/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -32,7 +32,7 @@ const login = async (req, res) => {
       sql: 'SELECT id, username, password_hash, role FROM users WHERE username = ?',
       args: [username]
     });
-    logger.info(`Query executed for username: ${username}, found ${userResult.rows.length} users`);
+    logger.info(`Admin login lookup completed, found ${userResult.rows.length} matching users`);
 
     if (userResult.rows.length === 0) {
       logger.info(`User not found: ${username}`);
@@ -43,12 +43,15 @@ const login = async (req, res) => {
     }
 
     const user = userResult.rows[0];
-    logger.info(`User found: ${user.username}, hash: ${user.password_hash.substring(0, 20)}...`);
+    if (String(user.role).toLowerCase() !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'This account is not authorized for the admin panel'
+      });
+    }
 
     // Verify password
-    logger.info(`Comparing password: ${password}`);
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-    logger.info(`Password comparison result: ${isPasswordValid}`);
+    const isPasswordValid = await comparePassword(password, user.password_hash);
 
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -109,7 +112,7 @@ const logout = (req, res) => {
     res.clearCookie('token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict'
+      sameSite: 'lax'
     });
 
     logger.info('User logged out successfully');
@@ -134,14 +137,13 @@ const logout = (req, res) => {
 const validate = async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const token = req.cookies?.token || (authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null);
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: 'No token provided'
       });
     }
-
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     // Verify token
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
@@ -150,6 +152,10 @@ const validate = async (req, res) => {
           success: false,
           message: 'Invalid token'
         });
+      }
+
+      if (decoded.role !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin access required' });
       }
 
       // Token is valid, return user info

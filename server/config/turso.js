@@ -271,6 +271,29 @@ const initializeSchema = async () => {
   }
 };
 
+async function migrateCatalogCategories() {
+  if (!catalogDb) return;
+  try {
+    await catalogDb.execute("UPDATE products SET category = 'hilsa' WHERE LOWER(TRIM(category)) = 'hilsha'");
+    console.log('[turso] catalog category migration complete: hilsha -> hilsa');
+  } catch (error) {
+    console.warn('[turso] catalog category migration skipped:', error.message);
+  }
+  try {
+    await catalogDb.execute("UPDATE products SET image_url = NULL WHERE LOWER(TRIM(image_url)) LIKE 'https://example.com/%'");
+    console.log('[turso] catalog image cleanup complete: invalid example.com URLs cleared');
+  } catch (error) {
+    console.warn('[turso] catalog image cleanup skipped:', error.message);
+  }
+  try {
+    await catalogDb.execute("UPDATE products SET category = NULL WHERE LOWER(TRIM(category)) IN ('', 'undefined', 'null', 'n/a', 'na')");
+    await catalogDb.execute("UPDATE products SET is_active = 0 WHERE LOWER(TRIM(name)) IN ('', 'undefined', 'null')");
+    console.log('[turso] catalog value cleanup complete: invalid labels removed');
+  } catch (error) {
+    console.warn('[turso] catalog value cleanup skipped:', error.message);
+  }
+}
+
 /**
  * Get database connection by name
  * @param {string} dbName - Either 'catalog', 'orders', 'customer', or 'availablePincodes'
@@ -305,5 +328,6 @@ const getDatabaseConnection = async (dbName) => {
 
 module.exports = {
   initializeDatabaseConnections,
+  migrateCatalogCategories,
   getDatabaseConnection
 };

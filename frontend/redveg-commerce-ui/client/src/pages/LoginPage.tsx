@@ -27,7 +27,13 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [location, setLocation] = useLocation();
-  const returnTo = new URLSearchParams(location.split("?")[1] || "").get("returnTo") || "/";
+  const requestedReturnTo = new URLSearchParams(
+    location.split("?")[1] || ""
+  ).get("returnTo");
+  const returnTo =
+    requestedReturnTo?.startsWith("/") && !requestedReturnTo.startsWith("//")
+      ? requestedReturnTo
+      : "/profile";
 
   if (isAuthenticated) {
     return <Redirect replace to={returnTo} />;
@@ -105,13 +111,22 @@ export function LoginPage() {
           </div>
 
           <div className="p-6">
+            {!firebaseConfigured && (
+              <p
+                role="status"
+                className="mb-4 rounded-xl bg-[#FFF3F1] px-4 py-3 text-sm leading-5 text-[#8E2926]"
+              >
+                Customer sign-in is temporarily unavailable. Please try again
+                later.
+              </p>
+            )}
             {/* Google Sign-In — primary CTA */}
             <Button
               type="button"
               variant="outline"
               className="h-12 w-full gap-3 rounded-xl border-[#E9D8D4] bg-white text-sm font-semibold text-[#4D403D] shadow-sm transition-all hover:border-[#B4232C]/30 hover:bg-[#FFF5F0] hover:shadow-md"
               onClick={handleGoogleSignIn}
-              disabled={loading}
+              disabled={loading || !firebaseConfigured}
             >
               <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
                 <path
@@ -159,10 +174,11 @@ export function LoginPage() {
                       id="phone"
                       type="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={e => setPhone(e.target.value)}
                       placeholder="Enter your mobile number"
                       className="h-11 flex-1 rounded-lg border-[#E9D8D4] bg-white text-sm focus-visible:ring-[#B4232C]/30"
                       maxLength={10}
+                      disabled={!firebaseConfigured}
                       required
                     />
                   </div>
@@ -170,7 +186,7 @@ export function LoginPage() {
 
                 <Button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !firebaseConfigured}
                   className="h-11 w-full rounded-xl bg-[#B4232C] font-semibold text-white shadow-[0_4px_14px_rgba(180,35,44,0.3)] transition-all hover:bg-[#9A1A1A] hover:shadow-[0_6px_20px_rgba(180,35,44,0.35)] disabled:opacity-50"
                 >
                   {loading ? "Sending OTP..." : "Send OTP"}
@@ -190,7 +206,7 @@ export function LoginPage() {
                     type="text"
                     inputMode="numeric"
                     value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
+                    onChange={e => setOtp(e.target.value)}
                     placeholder="Enter 6-digit OTP"
                     className="h-11 rounded-lg border-[#E9D8D4] bg-white text-center text-lg font-bold tracking-[0.3em] focus-visible:ring-[#B4232C]/30"
                     maxLength={6}

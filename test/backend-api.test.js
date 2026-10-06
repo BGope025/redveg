@@ -64,6 +64,43 @@ test('products endpoint matches category slugs to display-name catalog categorie
   assert.deepEqual(statement.args, ['deshi-fish', 'deshi-fish', 'deshi-fish', 50, 0]);
 });
 
+test('storefront product search matches each keyword across product and variant fields', async () => {
+  let statement;
+  currentDb = { execute: async (nextStatement) => {
+    statement = nextStatement;
+    return { rows: [] };
+  } };
+  const res = response();
+  await productsController.getAllProducts(request({ q: 'fresh chicken drumsticks', limit: '10' }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.match(statement.sql, /LOWER\(COALESCE\(p\.name/);
+  assert.match(statement.sql, /LOWER\(COALESCE\(p\.category/);
+  assert.match(statement.sql, /LOWER\(COALESCE\(p\.description/);
+  assert.match(statement.sql, /search_variant\.sku/);
+  assert.match(statement.sql, /search_variant\.size/);
+  assert.match(statement.sql, /search_variant\.weight/);
+  assert.ok(statement.args.includes('%chicken%'));
+  assert.ok(statement.args.includes('%drumstick%'));
+  assert.ok(!statement.args.includes('%fresh%'), 'generic freshness wording should not block catalog matches');
+  assert.deepEqual(statement.args.slice(-2), [10, 0]);
+});
+
+test('storefront product search expands fish-name spellings and seafood synonyms', async () => {
+  let statement;
+  currentDb = { execute: async (nextStatement) => {
+    statement = nextStatement;
+    return { rows: [] };
+  } };
+  const res = response();
+  await productsController.getAllProducts(request({ q: 'hilsha shrimp' }), res);
+
+  assert.equal(res.statusCode, 200);
+  for (const keyword of ['%hilsha%', '%hilsa%', '%ilish%', '%shrimp%', '%prawn%', '%chingri%']) {
+    assert.ok(statement.args.includes(keyword), `expected search to include ${keyword}`);
+  }
+});
+
 test('revenue reports query created_at and return a normalized series', async () => {
   queries.length = 0;
   const statements = [];
@@ -470,7 +507,7 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
     starts_at: new Date(now - 60_000).toISOString(), ends_at: new Date(now + 86_400_000).toISOString(),
     usage_limit: 1, usage_count: 0,
   };
-  const orderColumns = ['id', 'user_id', 'customer_id', 'cart_snapshot', 'total_amount', 'customer_name', 'customer_phone', 'customer_address', 'status', 'is_archived', 'created_at', 'order_date', 'coupon_id', 'coupon_code', 'subtotal_amount', 'discount_amount', 'delivery_fee'];
+  const orderColumns = ['id', 'user_id', 'customer_id', 'firebase_uid', 'cart_snapshot', 'total_amount', 'customer_name', 'customer_phone', 'customer_address', 'status', 'is_archived', 'created_at', 'order_date', 'coupon_id', 'coupon_code', 'subtotal_amount', 'discount_amount', 'delivery_fee'];
   currentDbs = {
     catalog: { execute: async (statement) => {
       const sql = typeof statement === 'string' ? statement : statement.sql;
@@ -490,7 +527,7 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
   };
 
   const res = response();
-  await ordersController.createOrder({ body: {
+  await ordersController.createOrder({ firebaseCustomer: { uid: 'firebase-user-1' }, body: {
     cartItems: [{ productId: 'P1', variantId: 'V1', quantity: 2 }],
     couponCode: 'save10', discountAmount: 9999,
     customer: { name: 'Asha Rao', phoneNo: '9876543210', address: 'Kolkata' },
@@ -505,9 +542,12 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
   assert.equal(res.body.data.status, 'pending');
   const insert = orderStatements.find((statement) => statement.sql.includes('INSERT INTO orders'));
   assert.ok(insert);
+  assert.match(insert.sql, /customer_id, firebase_uid, cart_snapshot/);
+  assert.equal(insert.args[2], null);
+  assert.equal(insert.args[3], 'firebase-user-1');
   assert.match(insert.sql, /coupon_id, coupon_code, subtotal_amount,\s+discount_amount, delivery_fee, payment_status, received_amount, balance_amount/);
   assert.match(insert.sql, /'pending'/);
-  assert.deepEqual(insert.args.slice(8), ['cpn-checkout', 'SAVE10', 200, 20, 49, 229]);
+  assert.deepEqual(insert.args.slice(9), ['cpn-checkout', 'SAVE10', 200, 20, 49, 229]);
   assert.ok(catalogStatements.some((statement) => statement.sql === 'BEGIN IMMEDIATE TRANSACTION'));
   const stockUpdate = catalogStatements.find((statement) => statement.sql.startsWith('UPDATE variants SET stock_count = stock_count -'));
   assert.ok(stockUpdate);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogClose,
@@ -7,16 +7,12 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { BrandLogo } from '@/components/BrandLogo';
-import {
-  MapPin,
-  XIcon,
-  Loader2Icon
-} from 'lucide-react';
-import { deliveryLocationApi } from '@/lib/deliveryLocationApi';
-import type { DeliveryLocation } from '@/contexts/LocationContext';
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { BrandLogo } from "@/components/BrandLogo";
+import { MapPin, XIcon, Loader2Icon } from "lucide-react";
+import { deliveryLocationApi } from "@/lib/deliveryLocationApi";
+import type { DeliveryLocation } from "@/contexts/LocationContext";
 
 interface DeliveryLocationModalProps {
   open: boolean;
@@ -24,16 +20,76 @@ interface DeliveryLocationModalProps {
   onLocationSelected: (location: DeliveryLocation) => void;
 }
 
+function getBestCurrentPosition({
+  targetAccuracy = 75,
+  maxWaitMs = 20000,
+}: {
+  targetAccuracy?: number;
+  maxWaitMs?: number;
+} = {}): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    let watchId: number | null = null;
+    let timeoutId: number | null = null;
+    let bestPosition: GeolocationPosition | null = null;
+    let finished = false;
+
+    const cleanup = () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+
+    const finish = (position: GeolocationPosition) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      resolve(position);
+    };
+
+    const fail = (error: GeolocationPositionError) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(error);
+    };
+
+    watchId = navigator.geolocation.watchPosition(
+      position => {
+        if (
+          !bestPosition ||
+          position.coords.accuracy < bestPosition.coords.accuracy
+        ) {
+          bestPosition = position;
+        }
+        if (position.coords.accuracy <= targetAccuracy) finish(position);
+      },
+      fail,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: maxWaitMs }
+    );
+
+    timeoutId = window.setTimeout(() => {
+      if (bestPosition) {
+        finish(bestPosition);
+      } else {
+        fail({
+          code: 3,
+          message: "Unable to obtain a location in time.",
+        } as GeolocationPositionError);
+      }
+    }, maxWaitMs);
+  });
+}
+
 export function DeliveryLocationModal({
   open,
   onOpenChange,
   onLocationSelected,
 }: DeliveryLocationModalProps) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [results, setResults] = useState<DeliveryLocation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedLocation, setSelectedLocation] = useState<DeliveryLocation | null>(null);
+  const [selectedLocation, setSelectedLocation] =
+    useState<DeliveryLocation | null>(null);
   const [geolocationLoading, setGeolocationLoading] = useState(false);
   const [geolocationError, setGeolocationError] = useState<string | null>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
@@ -43,7 +99,7 @@ export function DeliveryLocationModal({
   // Reset internal state when dialog opens
   useEffect(() => {
     if (open) {
-      setQuery('');
+      setQuery("");
       setResults([]);
       setError(null);
       setSelectedLocation(null);
@@ -79,13 +135,21 @@ export function DeliveryLocationModal({
     searchController.current = controller;
 
     try {
-      const searchResults = await deliveryLocationApi.search(searchQuery, true, controller.signal);
+      const searchResults = await deliveryLocationApi.search(
+        searchQuery,
+        true,
+        controller.signal
+      );
       if (controller.signal.aborted) return;
       setResults(searchResults);
-      setError(searchResults.length === 0 ? 'No matching locations found' : null);
+      setError(
+        searchResults.length === 0 ? "No matching locations found" : null
+      );
     } catch (err) {
       if (controller.signal.aborted) return;
-      setError('We couldn\'t search right now. Please try again or choose manually.');
+      setError(
+        "We couldn't search right now. Please try again or choose manually."
+      );
       setResults([]);
     } finally {
       if (!controller.signal.aborted) setLoading(false);
@@ -94,7 +158,7 @@ export function DeliveryLocationModal({
 
   const handleGeolocation = useCallback(async () => {
     if (!navigator.geolocation) {
-      setGeolocationError('Geolocation is not supported by your browser.');
+      setGeolocationError("Geolocation is not supported by your browser.");
       return;
     }
 
@@ -102,39 +166,43 @@ export function DeliveryLocationModal({
     setGeolocationError(null);
 
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(
-          resolve,
-          reject,
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            // Do not reuse an old position when the user explicitly asks
-            // for their current nearest delivery pincode.
-            maximumAge: 0,
-          }
+      const position = await getBestCurrentPosition();
+      const { latitude, longitude, accuracy } = position.coords;
+      const location = await deliveryLocationApi.reverseGeocode(
+        latitude,
+        longitude,
+        accuracy
+      );
+
+      setSelectedLocation({ ...location, accuracy });
+      setQuery(`${location.area}, ${location.city} · ${location.pincode}`);
+      if (accuracy > 150) {
+        setGeolocationError(
+          `Location detected with approximately ${Math.round(accuracy)}m accuracy. Please verify it before confirming.`
         );
-      });
-
-      const { latitude, longitude } = position.coords;
-      const location = await deliveryLocationApi.reverseGeocode(latitude, longitude);
-
-      // Immediately select and confirm geolocation result
-      onLocationSelected(location);
+      }
     } catch (err: any) {
       if (err.code === 1) {
-        setGeolocationError('Location permission was denied. You can search by pincode instead.');
+        setGeolocationError(
+          "Location permission was denied. You can search by pincode instead."
+        );
       } else if (err.code === 2) {
-        setGeolocationError('We couldn\'t detect your location. Please search by pincode.');
+        setGeolocationError(
+          "We couldn't detect your location. Please search by pincode."
+        );
       } else if (err.code === 3) {
-        setGeolocationError('Geolocation request timed out. Please try again or search by pincode.');
+        setGeolocationError(
+          "Geolocation request timed out. Please try again or search by pincode."
+        );
       } else {
-        setGeolocationError(err.message || 'An unknown error occurred with geolocation.');
+        setGeolocationError(
+          err.message || "An unknown error occurred with geolocation."
+        );
       }
     } finally {
       setGeolocationLoading(false);
     }
-  }, [onLocationSelected]);
+  }, []);
 
   // Debounced search
   useEffect(() => {
@@ -178,7 +246,10 @@ export function DeliveryLocationModal({
         <div className="space-y-4">
           {/* Search Input */}
           <div className="sticky top-0 z-10 -mx-1 space-y-2 bg-background px-1 pb-2 pt-1">
-            <label htmlFor="location-search" className="text-[0.68rem] font-bold text-foreground">
+            <label
+              htmlFor="location-search"
+              className="text-[0.68rem] font-bold text-foreground"
+            >
               Search your pincode...
             </label>
             <div className="relative">
@@ -187,7 +258,7 @@ export function DeliveryLocationModal({
                 id="location-search"
                 type="text"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={e => setQuery(e.target.value)}
                 placeholder="Search your pincode..."
                 className="w-full px-4 py-3 rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-0 disabled:opacity-50"
                 disabled={loading || geolocationLoading}
@@ -198,7 +269,7 @@ export function DeliveryLocationModal({
               {!loading && query.length > 0 && (
                 <XIcon
                   className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground cursor-pointer hover:text-accent-foreground"
-                  onClick={() => setQuery('')}
+                  onClick={() => setQuery("")}
                 />
               )}
             </div>
@@ -226,10 +297,13 @@ export function DeliveryLocationModal({
                 Use my current location
               </span>
               {geolocationError ? (
-                <p className="text-[0.62rem] text-destructive break-words whitespace-normal leading-tight">{geolocationError}</p>
+                <p className="text-[0.62rem] text-destructive break-words whitespace-normal leading-tight">
+                  {geolocationError}
+                </p>
               ) : (
                 <p className="text-[0.62rem] text-muted-foreground break-words whitespace-normal leading-tight">
-                  We use your location only to check delivery availability near you.
+                  We use your location only to check delivery availability near
+                  you.
                 </p>
               )}
             </div>
@@ -247,9 +321,11 @@ export function DeliveryLocationModal({
                     key={`${location.pincode}-${index}`}
                     onClick={() => handleLocationSelect(location)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border border-background text-left
-                      ${selectedLocation?.pincode === location.pincode
-                        ? 'bg-primary text-primary-foreground'
-                        : 'hover:bg-accent hover:text-accent-foreground'}
+                      ${
+                        selectedLocation?.pincode === location.pincode
+                          ? "bg-primary text-primary-foreground"
+                          : "hover:bg-accent hover:text-accent-foreground"
+                      }
                       focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-0
                       transition-all duration-150`}
                   >
@@ -269,7 +345,13 @@ export function DeliveryLocationModal({
                       )}
                     </div>
                     {selectedLocation?.pincode === location.pincode && (
-                      <svg className="size-4 text-primary-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg
+                        className="size-4 text-primary-foreground"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
                         <polyline points="20 6 9 17 4 12"></polyline>
                       </svg>
                     )}
@@ -281,14 +363,22 @@ export function DeliveryLocationModal({
 
           {/* Submit Button */}
           {selectedLocation && (
-            <Button
-              variant="default"
-              className="w-full px-4 py-3"
-              disabled={loading}
-              onClick={handleSubmit}
-            >
-              Confirm location
-            </Button>
+            <div className="space-y-2">
+              {selectedLocation.accuracy && (
+                <p className="text-center text-[0.62rem] text-muted-foreground">
+                  Detected within approximately{" "}
+                  {Math.round(selectedLocation.accuracy)}m
+                </p>
+              )}
+              <Button
+                variant="default"
+                className="w-full px-4 py-3"
+                disabled={loading || geolocationLoading}
+                onClick={handleSubmit}
+              >
+                Confirm location
+              </Button>
+            </div>
           )}
         </div>
 

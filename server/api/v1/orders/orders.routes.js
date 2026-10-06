@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../../../middleware/auth.middleware');
 const { authenticateCustomer } = require('../../../middleware/customer-auth.middleware');
+const { authenticateFirebaseCustomer } = require('../../../middleware/firebase-customer-auth.middleware');
 const {
   createOrder,
   getOrderById,
@@ -15,7 +16,7 @@ const {
 } = require('./orders.controller');
 
 // Public checkout; the controller validates the supplied delivery details.
-router.post('/checkout', createOrder);
+router.post('/checkout', authenticateFirebaseCustomer, createOrder);
 
 // Protected routes
 router.use(protect);

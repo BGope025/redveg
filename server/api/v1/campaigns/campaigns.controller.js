@@ -178,6 +178,9 @@ const createCampaign = async (req, res) => {
         throw generateValidationError(`${field} is required`);
       }
     }
+    if (status === 'published' && !desktopImageUrl && !mobileImageUrl && !posterImageUrl) {
+      throw generateValidationError('A hero image is required before publishing a campaign');
+    }
 
     const db = await getDatabaseConnection('catalog');
     const campaignId = generateCampaignId();
@@ -277,12 +280,19 @@ const updateCampaign = async (req, res) => {
 
     // Check if campaign exists
     const existing = await db.execute({
-      sql: 'SELECT id FROM campaigns WHERE id = ?',
+      sql: 'SELECT id, status, desktopImageUrl, mobileImageUrl, posterImageUrl FROM campaigns WHERE id = ?',
       args: [id]
     });
 
     if (existing.rows.length === 0) {
       throw generateNotFoundError('Campaign not found');
+    }
+
+    const existingCampaign = existing.rows[0];
+    const nextStatus = updateData.status ?? existingCampaign.status;
+    const hasHeroImage = updateData.desktopImageUrl || updateData.mobileImageUrl || updateData.posterImageUrl || existingCampaign.desktopImageUrl || existingCampaign.mobileImageUrl || existingCampaign.posterImageUrl;
+    if (nextStatus === 'published' && !hasHeroImage) {
+      throw generateValidationError('A hero image is required before publishing a campaign');
     }
 
     // Build update query dynamically

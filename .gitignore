@@ -36,3 +36,7 @@ Thumbs.db
 # Misc
 .coverage
 .nyc_output
+.codex/
+.manus/
+.work/
+outputs/

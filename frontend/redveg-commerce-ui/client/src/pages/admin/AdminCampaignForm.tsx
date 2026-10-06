@@ -4,9 +4,21 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { campaignApi } from "@/lib/campaignApi";
-import type { Campaign, CampaignOccasion, CampaignPlacement } from "@/types/commerce";
+import type {
+  Campaign,
+  CampaignOccasion,
+  CampaignPlacement,
+} from "@/types/commerce";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Eye, Palette, Target, LayoutTemplate, MessageSquare } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  Eye,
+  Palette,
+  Target,
+  LayoutTemplate,
+  MessageSquare,
+} from "lucide-react";
 
 const emptyCampaign: Partial<Campaign> = {
   name: "",
@@ -14,7 +26,9 @@ const emptyCampaign: Partial<Campaign> = {
   occasion: "custom",
   status: "draft",
   startsAt: new Date().toISOString().slice(0, 16),
-  endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+  endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 16),
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   placement: "header_strip",
   priority: 10,
@@ -43,7 +57,12 @@ interface AdminCampaignFormProps {
   onClose?: () => void;
 }
 
-export default function AdminCampaignForm({ campaignId, campaign, onSave, onClose }: AdminCampaignFormProps = {}) {
+export default function AdminCampaignForm({
+  campaignId,
+  campaign,
+  onSave,
+  onClose,
+}: AdminCampaignFormProps = {}) {
   const [, navigate] = useLocation();
   const [match, params] = useRoute("/admin/campaigns/:id");
 
@@ -53,7 +72,8 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
   const isEditing = isEditingFromProps || isEditingFromRoute;
 
   // Get the effective campaign ID for edit mode
-  const effectiveCampaignId = campaignId ?? (isEditingFromRoute ? params?.id : undefined);
+  const effectiveCampaignId =
+    campaignId ?? (isEditingFromRoute ? params?.id : undefined);
 
   // Form state
   const [formData, setFormData] = useState<Partial<Campaign>>(emptyCampaign);
@@ -62,7 +82,7 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
   const [error, setError] = useState<string | null>(null);
   const closeEditor = () => {
     if (onClose) onClose();
-    else navigate('/admin/offers');
+    else navigate("/admin/offers");
   };
 
   // Load campaign data for edit mode if not pre-loaded
@@ -81,11 +101,11 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
               endsAt: new Date(data.endsAt).toISOString().slice(0, 16),
             });
           } else {
-            setError('Campaign not found');
+            setError("Campaign not found");
             closeEditor();
           }
         } catch (err) {
-          setError('Failed to load campaign');
+          setError("Failed to load campaign");
           closeEditor();
         } finally {
           setLoading(false);
@@ -102,25 +122,51 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
     }
   }, [isEditing, effectiveCampaignId, campaign, onClose]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
+  ) => {
     const { name, value, type } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'number' ? Number(value) : value
+      [name]: type === "number" ? Number(value) : value,
     }));
   };
 
-  const handleSave = async (status: Campaign['status']) => {
-    if (!formData.name?.trim() || !formData.slug?.trim() || !formData.occasion || !formData.placement) {
-      const message = 'Campaign name, slug, occasion, and placement are required';
+  const handleSave = async (status: Campaign["status"]) => {
+    if (
+      !formData.name?.trim() ||
+      !formData.slug?.trim() ||
+      !formData.occasion ||
+      !formData.placement
+    ) {
+      const message =
+        "Campaign name, slug, occasion, and placement are required";
       setError(message);
       toast.error(message);
       return;
     }
-    const startsAt = new Date(formData.startsAt || '');
-    const endsAt = new Date(formData.endsAt || '');
-    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
-      const message = 'End date and time must be after the start date and time';
+    const startsAt = new Date(formData.startsAt || "");
+    const endsAt = new Date(formData.endsAt || "");
+    if (
+      Number.isNaN(startsAt.getTime()) ||
+      Number.isNaN(endsAt.getTime()) ||
+      endsAt <= startsAt
+    ) {
+      const message = "End date and time must be after the start date and time";
+      setError(message);
+      toast.error(message);
+      return;
+    }
+    if (
+      status === "published" &&
+      !formData.desktopImageUrl &&
+      !formData.mobileImageUrl &&
+      !formData.posterImageUrl
+    ) {
+      const message =
+        "Add a campaign image before publishing so customers can see this offer in the storefront hero.";
       setError(message);
       toast.error(message);
       return;
@@ -137,7 +183,10 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
 
       let result: Campaign | null = null;
       if (isEditing && effectiveCampaignId) {
-        result = await campaignApi.updateCampaign(effectiveCampaignId, dataToSave);
+        result = await campaignApi.updateCampaign(
+          effectiveCampaignId,
+          dataToSave
+        );
         toast.success("Campaign updated successfully");
       } else {
         result = await campaignApi.createCampaign(dataToSave);
@@ -149,15 +198,19 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
       }
       closeEditor();
     } catch (err: any) {
-      setError(err.message || 'Failed to save campaign');
-      toast.error(err.message || 'Failed to save campaign');
+      setError(err.message || "Failed to save campaign");
+      toast.error(err.message || "Failed to save campaign");
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return <AdminShell title="Loading..." subtitle=""><div className="p-8">Loading...</div></AdminShell>;
+    return (
+      <AdminShell title="Loading..." subtitle="">
+        <div className="p-8">Loading...</div>
+      </AdminShell>
+    );
   }
 
   return (
@@ -166,9 +219,21 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
       subtitle="Configure seasonal banners and collections"
       action={
         <div className="flex gap-3">
-          <Button variant="outline" onClick={closeEditor}><ArrowLeft className="size-4 mr-2" /> Cancel</Button>
-          <Button variant="outline" onClick={() => handleSave("draft")} disabled={saving}><Save className="size-4 mr-2" /> Save Draft</Button>
-          <Button onClick={() => handleSave("published")} disabled={saving} className="bg-[#B4232C] hover-bg-[#901c23] text-white">
+          <Button variant="outline" onClick={closeEditor}>
+            <ArrowLeft className="size-4 mr-2" /> Cancel
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => handleSave("draft")}
+            disabled={saving}
+          >
+            <Save className="size-4 mr-2" /> Save Draft
+          </Button>
+          <Button
+            onClick={() => handleSave("published")}
+            disabled={saving}
+            className="bg-[#B4232C] hover-bg-[#901c23] text-white"
+          >
             Publish Campaign
           </Button>
         </div>
@@ -179,41 +244,100 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
         <div className="space-y-8">
           {/* Visual Theme */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Palette className="size-5 text-[#B4232C]" /> Visual Theme</h3>
+            <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <Palette className="size-5 text-[#B4232C]" /> Visual Theme
+            </h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold">Background Color</label>
+                <label className="text-sm font-semibold">
+                  Background Color
+                </label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="backgroundColor" value={formData.backgroundColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="backgroundColor" value={formData.backgroundColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="backgroundColor"
+                    value={formData.backgroundColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="backgroundColor"
+                    value={formData.backgroundColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold">Text Color</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="foregroundColor" value={formData.foregroundColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="foregroundColor" value={formData.foregroundColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="foregroundColor"
+                    value={formData.foregroundColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="foregroundColor"
+                    value={formData.foregroundColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold">Accent Color</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="accentColor" value={formData.accentColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="accentColor" value={formData.accentColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="accentColor"
+                    value={formData.accentColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="accentColor"
+                    value={formData.accentColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between pt-4 border-t">
                 <label className="text-sm font-semibold">Button BG</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="buttonColor" value={formData.buttonColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="buttonColor" value={formData.buttonColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="buttonColor"
+                    value={formData.buttonColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="buttonColor"
+                    value={formData.buttonColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold">Button Text</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="buttonTextColor" value={formData.buttonTextColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="buttonTextColor" value={formData.buttonTextColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="buttonTextColor"
+                    value={formData.buttonTextColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="buttonTextColor"
+                    value={formData.buttonTextColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
             </div>
@@ -221,15 +345,31 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
 
           {/* Targeting */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Target className="size-5 text-[#B4232C]" /> Targeting</h3>
+            <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <Target className="size-5 text-[#B4232C]" /> Targeting
+            </h3>
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Priority (Higher overrides lower)</label>
-                <Input type="number" name="priority" value={formData.priority || 10} onChange={handleChange} min={0} max={100} />
+                <label className="text-sm font-semibold">
+                  Priority (Higher overrides lower)
+                </label>
+                <Input
+                  type="number"
+                  name="priority"
+                  value={formData.priority || 10}
+                  onChange={handleChange}
+                  min={0}
+                  max={100}
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Target Devices</label>
-                <select name="targetDevice" value={formData.targetDevice || "all"} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <select
+                  name="targetDevice"
+                  value={formData.targetDevice || "all"}
+                  onChange={handleChange}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
                   <option value="all">All Devices</option>
                   <option value="desktop">Desktop Only</option>
                   <option value="mobile">Mobile Only</option>
@@ -241,22 +381,43 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
 
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-8">
-
           {/* Basic Info */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><LayoutTemplate className="size-5 text-[#B4232C]" /> Basic Info & Schedule</h3>
+            <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <LayoutTemplate className="size-5 text-[#B4232C]" /> Basic Info &
+              Schedule
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Campaign Name</label>
-                <Input required name="name" value={formData.name || ""} onChange={handleChange} placeholder="e.g. Diwali Mega Sale" />
+                <Input
+                  required
+                  name="name"
+                  value={formData.name || ""}
+                  onChange={handleChange}
+                  placeholder="e.g. Diwali Mega Sale"
+                />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Slug (URL friendly)</label>
-                <Input required name="slug" value={formData.slug || ""} onChange={handleChange} placeholder="diwali-sale-2026" />
+                <label className="text-sm font-semibold">
+                  Slug (URL friendly)
+                </label>
+                <Input
+                  required
+                  name="slug"
+                  value={formData.slug || ""}
+                  onChange={handleChange}
+                  placeholder="diwali-sale-2026"
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Occasion</label>
-                <select name="occasion" value={formData.occasion || ""} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <select
+                  name="occasion"
+                  value={formData.occasion || ""}
+                  onChange={handleChange}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
                   <option value="custom">Custom</option>
                   <option value="diwali">Diwali</option>
                   <option value="holi">Holi</option>
@@ -266,46 +427,123 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Placement</label>
-                <select name="placement" value={formData.placement || ""} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <select
+                  name="placement"
+                  value={formData.placement || ""}
+                  onChange={handleChange}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
                   <option value="header_strip">Header Strip Only</option>
-                  <option value="collection_module">Collection Module Only</option>
+                  <option value="collection_module">
+                    Collection Module Only
+                  </option>
                   <option value="both">Both</option>
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Start Date & Time</label>
-                <Input type="datetime-local" name="startsAt" value={formData.startsAt || ""} onChange={handleChange} />
+                <label className="text-sm font-semibold">
+                  Start Date & Time
+                </label>
+                <Input
+                  type="datetime-local"
+                  name="startsAt"
+                  value={formData.startsAt || ""}
+                  onChange={handleChange}
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">End Date & Time</label>
-                <Input type="datetime-local" name="endsAt" value={formData.endsAt || ""} onChange={handleChange} />
+                <Input
+                  type="datetime-local"
+                  name="endsAt"
+                  value={formData.endsAt || ""}
+                  onChange={handleChange}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-semibold">
+                  Desktop hero image URL
+                </label>
+                <Input
+                  name="desktopImageUrl"
+                  value={formData.desktopImageUrl || ""}
+                  onChange={handleChange}
+                  placeholder="https://.../offer-banner.jpg"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required when publishing. This image is shown in the
+                  storefront hero slideshow.
+                </p>
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-semibold">
+                  Mobile hero image URL{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (optional)
+                  </span>
+                </label>
+                <Input
+                  name="mobileImageUrl"
+                  value={formData.mobileImageUrl || ""}
+                  onChange={handleChange}
+                  placeholder="https://.../offer-mobile.jpg"
+                />
               </div>
             </div>
           </div>
 
           {/* Copy & Messaging */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><MessageSquare className="size-5 text-[#B4232C]" /> Messaging & CTA</h3>
+            <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <MessageSquare className="size-5 text-[#B4232C]" /> Messaging &
+              CTA
+            </h3>
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">Label / Callout (Short)</label>
-                  <Input name="label" value={formData.label || ""} onChange={handleChange} placeholder="e.g. SALE" />
+                  <label className="text-sm font-semibold">
+                    Label / Callout (Short)
+                  </label>
+                  <Input
+                    name="label"
+                    value={formData.label || ""}
+                    onChange={handleChange}
+                    placeholder="e.g. SALE"
+                  />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">CTA Button Text</label>
-                  <Input name="ctaLabel" value={formData.ctaLabel || ""} onChange={handleChange} placeholder="e.g. Shop Now" />
+                  <label className="text-sm font-semibold">
+                    CTA Button Text
+                  </label>
+                  <Input
+                    name="ctaLabel"
+                    value={formData.ctaLabel || ""}
+                    onChange={handleChange}
+                    placeholder="e.g. Shop Now"
+                  />
                 </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Main Message</label>
-                <Input name="message" value={formData.message || ""} onChange={handleChange} placeholder="e.g. Get 20% off on all fresh cuts this festive season!" />
+                <Input
+                  name="message"
+                  value={formData.message || ""}
+                  onChange={handleChange}
+                  placeholder="e.g. Get 20% off on all fresh cuts this festive season!"
+                />
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">Destination Type</label>
-                  <select name="destinationType" value={formData.destinationType || ""} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                  <label className="text-sm font-semibold">
+                    Destination Type
+                  </label>
+                  <select
+                    name="destinationType"
+                    value={formData.destinationType || ""}
+                    onChange={handleChange}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  >
                     <option value="url">Custom URL</option>
                     <option value="category">Category</option>
                     <option value="product">Product</option>
@@ -313,55 +551,119 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">Destination Value</label>
-                  <Input name="destinationValue" value={formData.destinationValue || ""} onChange={handleChange} placeholder="e.g. /shop or category-slug" />
+                  <label className="text-sm font-semibold">
+                    Destination Value
+                  </label>
+                  <Input
+                    name="destinationValue"
+                    value={formData.destinationValue || ""}
+                    onChange={handleChange}
+                    placeholder="e.g. /shop or category-slug"
+                  />
                 </div>
               </div>
             </div>
           </div>
-
         </div>
 
         {/* Sidebar */}
         <div className="space-y-8">
-          
           {/* Visual Theme */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Palette className="size-5 text-[#B4232C]" /> Visual Theme</h3>
+            <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <Palette className="size-5 text-[#B4232C]" /> Visual Theme
+            </h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold">Background Color</label>
+                <label className="text-sm font-semibold">
+                  Background Color
+                </label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="backgroundColor" value={formData.backgroundColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="backgroundColor" value={formData.backgroundColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="backgroundColor"
+                    value={formData.backgroundColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="backgroundColor"
+                    value={formData.backgroundColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold">Text Color</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="foregroundColor" value={formData.foregroundColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="foregroundColor" value={formData.foregroundColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="foregroundColor"
+                    value={formData.foregroundColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="foregroundColor"
+                    value={formData.foregroundColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold">Accent Color</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="accentColor" value={formData.accentColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="accentColor" value={formData.accentColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="accentColor"
+                    value={formData.accentColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="accentColor"
+                    value={formData.accentColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between pt-4 border-t">
                 <label className="text-sm font-semibold">Button BG</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="buttonColor" value={formData.buttonColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="buttonColor" value={formData.buttonColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="buttonColor"
+                    value={formData.buttonColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="buttonColor"
+                    value={formData.buttonColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold">Button Text</label>
                 <div className="flex items-center gap-2">
-                  <Input type="color" name="buttonTextColor" value={formData.buttonTextColor || ""} onChange={handleChange} className="w-10 h-10 p-1" />
-                  <Input name="buttonTextColor" value={formData.buttonTextColor || ""} onChange={handleChange} className="w-24 font-mono text-xs" />
+                  <Input
+                    type="color"
+                    name="buttonTextColor"
+                    value={formData.buttonTextColor || ""}
+                    onChange={handleChange}
+                    className="w-10 h-10 p-1"
+                  />
+                  <Input
+                    name="buttonTextColor"
+                    value={formData.buttonTextColor || ""}
+                    onChange={handleChange}
+                    className="w-24 font-mono text-xs"
+                  />
                 </div>
               </div>
             </div>
@@ -369,15 +671,31 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
 
           {/* Targeting */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-black/5">
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-6"><Target className="size-5 text-[#B4232C]" /> Targeting</h3>
+            <h3 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <Target className="size-5 text-[#B4232C]" /> Targeting
+            </h3>
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-semibold">Priority (Higher overrides lower)</label>
-                <Input type="number" name="priority" value={formData.priority || 10} onChange={handleChange} min={0} max={100} />
+                <label className="text-sm font-semibold">
+                  Priority (Higher overrides lower)
+                </label>
+                <Input
+                  type="number"
+                  name="priority"
+                  value={formData.priority || 10}
+                  onChange={handleChange}
+                  min={0}
+                  max={100}
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">Target Devices</label>
-                <select name="targetDevice" value={formData.targetDevice || "all"} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                <select
+                  name="targetDevice"
+                  value={formData.targetDevice || "all"}
+                  onChange={handleChange}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
                   <option value="all">All Devices</option>
                   <option value="desktop">Desktop Only</option>
                   <option value="mobile">Mobile Only</option>
@@ -385,7 +703,6 @@ export default function AdminCampaignForm({ campaignId, campaign, onSave, onClos
               </div>
             </div>
           </div>
-
         </div>
       </div>
     </AdminShell>

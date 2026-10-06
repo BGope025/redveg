@@ -5,6 +5,7 @@ const { executeCrossDbSaga } = require('../../../services/db-saga.service');
 const { generateWhatsAppMessage } = require('../../../services/whatsapp.service');
 const { CouponValidationError, roundMoney, calculateDeliveryFee, findApplicableCoupon, reserveCouponUsage, releaseCouponUsage } = require('../../../services/coupon.service');
 const { ensureOrderCouponColumns, ensureOrderPaymentColumns } = require('./orders.schema');
+const { ensureCustomerAccountSchema } = require('../customers/customer-account.schema');
 const { calculatePaymentUpdate } = require('../../../services/payment.service');
 const logger = require('../../../utils/logger');
 
@@ -187,7 +188,10 @@ const createOrder = async (req, res) => {
       throw generateValidationError('Coupon code must be text');
     }
     let couponCode = typeof requestedCouponCode === 'string' ? requestedCouponCode.trim().toUpperCase() : '';
-    const customerId = req.customer?.customerId || customer?.customerId || `guest-${Date.now()}`;
+    const customerId = req.firebaseCustomer?.uid || req.customer?.customerId;
+    if (!customerId) {
+      return res.status(401).json({ success: false, message: 'A verified customer sign-in is required to place this order.' });
+    }
 
     // Validate required fields
     if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
@@ -203,9 +207,10 @@ const createOrder = async (req, res) => {
 
     catalogDb = await getDatabaseConnection('catalog');
     ordersDb = await getDatabaseConnection('orders');
-    const customerDb = await getDatabaseConnection('customer');
-      await ensureOrderCouponColumns(ordersDb);
-      await ensureOrderPaymentColumns(ordersDb);
+    const customerDb = req.customer ? await getDatabaseConnection('customer') : null;
+    await ensureCustomerAccountSchema(ordersDb);
+    await ensureOrderCouponColumns(ordersDb);
+    await ensureOrderPaymentColumns(ordersDb);
 
     let customerDetails = customer;
     if (req.customer) {
@@ -265,16 +270,17 @@ const createOrder = async (req, res) => {
     await ordersDb.execute({
       sql: `
         INSERT INTO orders (
-          id, user_id, customer_id, cart_snapshot, total_amount, customer_name,
+          id, user_id, customer_id, firebase_uid, cart_snapshot, total_amount, customer_name,
           customer_phone, customer_address, coupon_id, coupon_code, subtotal_amount,
           discount_amount, delivery_fee, payment_status, received_amount, balance_amount,
           payment_updated_at, payment_updated_by, status, is_archived, order_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 0, ?, NULL, NULL, 'pending', 0, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 0, ?, NULL, NULL, 'pending', 0, CURRENT_TIMESTAMP)
       `,
       args: [
         orderId,
         customerId,
-        customerId,
+        req.customer?.customerId || null,
+        req.firebaseCustomer?.uid || null,
         JSON.stringify(cartSnapshot),
         totalAmount,
         customerDetails.name,
@@ -283,10 +289,10 @@ const createOrder = async (req, res) => {
         reservedCouponId,
         couponCode || null,
         subtotalAmount,
-          discountAmount,
-          deliveryFee,
-          totalAmount,
-        ]
+        discountAmount,
+        deliveryFee,
+        totalAmount,
+      ]
     });
     orderInserted = true;
 

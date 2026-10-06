@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
+    customer_id TEXT,
+    firebase_uid TEXT,
     cart_snapshot TEXT NOT NULL, -- JSON string of cart items at time of checkout
     total_amount REAL NOT NULL,
     payment_status TEXT DEFAULT 'unpaid',
@@ -42,3 +44,29 @@ CREATE INDEX IF NOT EXISTS Orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS Orders_is_archived ON orders(is_archived);
 CREATE INDEX IF NOT EXISTS Orders_created_at ON orders(created_at);
 CREATE INDEX IF NOT EXISTS Orders_user_status ON orders(user_id, status);
+
+-- Customer profile data is scoped to the verified Firebase UID.
+CREATE TABLE IF NOT EXISTS customer_profiles (
+    firebase_uid TEXT PRIMARY KEY,
+    display_name TEXT,
+    email TEXT,
+    phone_number TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customer_addresses (
+    address_id TEXT PRIMARY KEY,
+    firebase_uid TEXT NOT NULL,
+    label TEXT NOT NULL,
+    recipient_name TEXT NOT NULL,
+    phone_number TEXT NOT NULL,
+    address_line TEXT NOT NULL,
+    locality TEXT NOT NULL,
+    landmark TEXT,
+    pincode TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_firebase_uid_created ON orders(firebase_uid, created_at);
+CREATE INDEX IF NOT EXISTS idx_customer_addresses_uid ON customer_addresses(firebase_uid, created_at);

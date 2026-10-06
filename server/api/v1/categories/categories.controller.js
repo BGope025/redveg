@@ -13,7 +13,7 @@ const getAllCategories = async (req, res) => {
     // The storefront only fetches a small featured-product page, so deriving
     // category images from that page leaves most category cards empty.
     const result = await db.execute({
-      sql: "SELECT category, MAX(image_url) AS image_url FROM products WHERE is_active = 1 AND category IS NOT NULL AND category != '' AND image_url IS NOT NULL AND image_url != '' GROUP BY category ORDER BY category",
+      sql: "SELECT CASE WHEN LOWER(TRIM(category)) IN ('hilsa', 'hilsha') THEN 'hilsa' ELSE LOWER(TRIM(category)) END AS category, MAX(image_url) AS image_url FROM products WHERE is_active = 1 AND category IS NOT NULL AND LOWER(TRIM(category)) NOT IN ('', 'undefined', 'null', 'n/a', 'na') AND image_url IS NOT NULL AND image_url != '' AND LOWER(TRIM(image_url)) NOT LIKE 'https://example.com/%' GROUP BY CASE WHEN LOWER(TRIM(category)) IN ('hilsa', 'hilsha') THEN 'hilsa' ELSE LOWER(TRIM(category)) END ORDER BY category",
       args: []
     });
 
@@ -21,7 +21,7 @@ const getAllCategories = async (req, res) => {
     // Return array directly to match frontend expectations
     const categories = result.rows.map((row, index) => {
       // Generate a simple ID from category name
-      const id = row.category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const id = normalizeCategorySlug(row.category);
 
       // Provide basic category info
       const categoryData = {
@@ -56,6 +56,16 @@ function getRandomAccentColor(index) {
     '#E5E0D7'  // Combos - neutral
   ];
   return colors[index % colors.length] || '#DCEED8';
+}
+
+function normalizeCategorySlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-and-/g, '-');
 }
 
 module.exports = {

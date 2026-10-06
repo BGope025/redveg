@@ -13,6 +13,118 @@ function slugify(text) {
     .replace(/-+$/, '');
 }
 
+function canonicalCategory(value) {
+  const category = String(value || '').trim().toLowerCase();
+  return category === 'hilsha' ? 'hilsa' : category;
+}
+
+const SEARCH_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'find', 'fresh', 'freshly', 'in', 'me', 'of', 'online',
+  'order', 'product', 'products', 'search', 'the', 'to', 'with', 'buy', 'best'
+]);
+
+const FISH_KEYWORDS = [
+  'aar', 'bata', 'bhetki', 'boal', 'gule', 'hilsa', 'ilish', 'kajoli', 'katla',
+  'koi', 'lote', 'magur', 'pabda', 'pomfret', 'puti', 'rohu', 'rui', 'singi',
+  'tangra', 'telapia', 'topse'
+];
+
+const SEARCH_SYNONYMS = {
+  fish: FISH_KEYWORDS,
+  seafood: [...FISH_KEYWORDS, 'fish', 'prawn', 'shrimp', 'chingri', 'crab', 'gugli'],
+  hilsa: ['ilish', 'hilsha'],
+  ilish: ['hilsa', 'hilsha'],
+  hilsha: ['hilsa', 'ilish'],
+  rohu: ['rui'],
+  rui: ['rohu'],
+  prawns: ['prawn', 'shrimp', 'chingri'],
+  prawn: ['prawns', 'shrimp', 'chingri'],
+  shrimp: ['prawn', 'prawns', 'chingri'],
+  chingri: ['prawn', 'prawns', 'shrimp'],
+  crab: ['kankra'],
+  kankra: ['crab'],
+  mutton: ['goat', 'lamb'],
+  goat: ['mutton', 'lamb'],
+  lamb: ['mutton', 'goat'],
+  meat: ['mutton', 'chicken', 'duck'],
+  chicken: ['poultry'],
+  poultry: ['chicken'],
+  keema: ['mince', 'minced', 'ground'],
+  mince: ['keema', 'minced', 'ground'],
+  minced: ['keema', 'mince', 'ground'],
+  drumstick: ['drumsticks', 'leg', 'legs'],
+  leg: ['legs', 'drumstick', 'drumsticks'],
+  desi: ['deshi'],
+  deshi: ['desi'],
+  maach: ['fish', ...FISH_KEYWORDS],
+  mach: ['fish', ...FISH_KEYWORDS],
+  offal: ['liver'],
+  liver: ['offal']
+};
+
+function singularizeSearchWord(word) {
+  if (word.length > 4 && word.endsWith('ies')) return `${word.slice(0, -3)}y`;
+  if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
+  return word;
+}
+
+function getSearchWordGroups(query) {
+  const normalized = String(query || '')
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+  const words = [...new Set(normalized.split(/\s+/).filter(Boolean))]
+    .map(singularizeSearchWord)
+    .filter(word => !SEARCH_STOP_WORDS.has(word))
+    .slice(0, 8);
+
+  return words.map(word => {
+    const synonyms = Object.prototype.hasOwnProperty.call(SEARCH_SYNONYMS, word)
+      ? SEARCH_SYNONYMS[word]
+      : [];
+    return [...new Set([word, ...synonyms])];
+  });
+}
+
+function buildProductKeywordFilter(query) {
+  const groups = getSearchWordGroups(query);
+  const args = [];
+  const clauses = groups.map(group => {
+    const alternatives = group.map(keyword => {
+      const pattern = `%${keyword}%`;
+      args.push(pattern, pattern, pattern, pattern, pattern, pattern);
+      return `(
+        LOWER(COALESCE(p.name, '')) LIKE ?
+        OR LOWER(COALESCE(p.category, '')) LIKE ?
+        OR LOWER(COALESCE(p.description, '')) LIKE ?
+        OR EXISTS (
+          SELECT 1 FROM variants search_variant
+          WHERE search_variant.product_id = p.id
+            AND (
+              LOWER(COALESCE(search_variant.sku, '')) LIKE ?
+              OR LOWER(COALESCE(search_variant.size, '')) LIKE ?
+              OR LOWER(COALESCE(search_variant.weight, '')) LIKE ?
+            )
+        )
+      )`;
+    });
+    return `(${alternatives.join(' OR ')})`;
+  });
+
+  return {
+    clause: clauses.length ? ` AND ${clauses.join(' AND ')}` : '',
+    args
+  };
+}
+
+function cleanImageUrl(value) {
+  const image = String(value || '').trim();
+  return !image || /^https?:\/\/example\.com(?:\/|$)/i.test(image) ? null : image;
+}
+
 function mapProduct(row, variants = []) {
   const mappedVariants = variants.map((variant) => ({
     id: variant.id,
@@ -32,9 +144,9 @@ function mapProduct(row, variants = []) {
     slug: row.slug || slugify(row.name),
     description: row.description || '',
     shortDescription: row.short_description || row.description || '',
-    category: row.category,
-    image: row.image_url || null,
-    imageUrl: row.image_url || null,
+    category: canonicalCategory(row.category),
+    image: cleanImageUrl(row.image_url),
+    imageUrl: cleanImageUrl(row.image_url),
     isActive: Boolean(row.is_active) && totalStock > 0,
     rating: row.rating == null ? null : Number(row.rating),
     variants: mappedVariants
@@ -64,22 +176,27 @@ const getAllProducts = async (req, res) => {
         mutton: 'mutton',
         prawns: 'prawns',
         'crabs-seafood': 'crabs & seafood',
+        hilsa: 'hilsa',
+        hilsha: 'hilsa',
         combos: 'combos',
         offers: 'offers'
       };
       const categoryValue = categoryAliases[category] || category;
-      categoryFilter += ` AND (
-        LOWER(TRIM(p.category)) = LOWER(TRIM(?))
-        OR LOWER(REPLACE(TRIM(p.category), ' ', '-')) = LOWER(TRIM(?))
-        OR LOWER(REPLACE(REPLACE(TRIM(p.category), ' & ', '-'), ' ', '-')) = LOWER(TRIM(?))
-      )`;
-      args.push(categoryValue, category, category);
+      if (category === 'hilsa' || category === 'hilsha') {
+        categoryFilter += " AND LOWER(TRIM(p.category)) IN ('hilsa', 'hilsha')";
+      } else {
+        categoryFilter += ` AND (
+          LOWER(TRIM(p.category)) = LOWER(TRIM(?))
+          OR LOWER(REPLACE(TRIM(p.category), ' ', '-')) = LOWER(TRIM(?))
+          OR LOWER(REPLACE(REPLACE(TRIM(p.category), ' & ', '-'), ' ', '-')) = LOWER(TRIM(?))
+        )`;
+        args.push(categoryValue, category, category);
+      }
     }
 
-    if (search) {
-      categoryFilter += " AND (p.name LIKE ? OR p.description LIKE ?)";
-      args.push(`%${search}%`, `%${search}%`);
-    }
+    const keywordFilter = buildProductKeywordFilter(search);
+    categoryFilter += keywordFilter.clause;
+    args.push(...keywordFilter.args);
 
     let sortClause = 'p.created_at DESC';
     if (sort === 'price-low') {
@@ -95,7 +212,10 @@ const getAllProducts = async (req, res) => {
       FROM (
         SELECT p.*
         FROM products p
-        WHERE p.is_active = 1 ${categoryFilter}
+        WHERE p.is_active = 1
+          AND LOWER(TRIM(COALESCE(p.category, ''))) NOT IN ('', 'undefined', 'null', 'n/a', 'na')
+          AND LOWER(TRIM(COALESCE(p.name, ''))) NOT IN ('', 'undefined', 'null')
+          ${categoryFilter}
         ORDER BY ${sortClause}
         ${limit ? 'LIMIT ? OFFSET ?' : ''}
       ) p

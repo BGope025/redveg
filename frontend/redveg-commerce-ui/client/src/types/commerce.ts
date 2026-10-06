@@ -1,6 +1,13 @@
 import type { HeaderTheme } from "@/themes/headerThemes";
 
-export type CategorySlug = "fish" | "chicken" | "mutton" | "prawns" | "crabs-seafood" | "combos" | "offers";
+export type CategorySlug =
+  | "fish"
+  | "chicken"
+  | "mutton"
+  | "prawns"
+  | "crabs-seafood"
+  | "combos"
+  | "offers";
 
 export interface Category {
   id: CategorySlug;
@@ -84,25 +91,29 @@ export interface DeliveryLocation {
   isServiceable?: boolean;
   latitude?: number | null;
   longitude?: number | null;
+  accuracy?: number | null;
+  accuracyWarning?: boolean;
+  learnedPincode?: boolean;
 }
 // ──────────────────────────────────────────────────────────────────────────────
 // Campaign Types - Seasonal Header System
 // ──────────────────────────────────────────────────────────────────────────────
 
-export type CampaignStatus = 'draft' | 'scheduled' | 'published' | 'paused' | 'expired' | 'archived';
+export type CampaignStatus =
+  "draft" | "scheduled" | "published" | "paused" | "expired" | "archived";
 
-export type CampaignPlacement = 'header_strip' | 'collection_module' | 'both';
+export type CampaignPlacement = "header_strip" | "collection_module" | "both";
 
 export type CampaignOccasion =
-  | 'diwali'
-  | 'holi'
-  | 'valentines'
-  | 'ramadan_eid'
-  | 'new_year'
-  | 'ipl'
-  | 'independence_day'
-  | 'durga_puja'
-  | 'custom';
+  | "diwali"
+  | "holi"
+  | "valentines"
+  | "ramadan_eid"
+  | "new_year"
+  | "ipl"
+  | "independence_day"
+  | "durga_puja"
+  | "custom";
 
 export interface CampaignThemeBase {
   id: string;
@@ -122,7 +133,7 @@ export interface CampaignThemeBase {
   label: string; // Short label/callout
   message: string; // Main campaign message
   ctaLabel: string; // Call-to-action button text
-  destinationType: 'url' | 'category' | 'collection' | 'product' | 'custom';
+  destinationType: "url" | "category" | "collection" | "product" | "custom";
   destinationValue: string; // URL, category slug, etc.
 
   backgroundColor: string; // CSS color
@@ -142,7 +153,7 @@ export interface CampaignThemeBase {
   reducedMotionMessage?: string; // Message when motion is reduced
 
   targetLocations?: string[]; // Area/pincode codes, empty array = all locations
-  targetDevice?: 'all' | 'desktop' | 'mobile';
+  targetDevice?: "all" | "desktop" | "mobile";
 
   collectionTitle?: string; // For collection module
   collectionSubtitle?: string; // For collection module
@@ -159,7 +170,10 @@ export interface CampaignThemeBase {
 }
 
 // Campaign type that extends HeaderTheme for compatibility
-export interface Campaign extends CampaignThemeBase, Omit<HeaderTheme, 'id' | 'name' | 'description' | 'emoji' | 'palette'> {
+export interface Campaign
+  extends
+    CampaignThemeBase,
+    Omit<HeaderTheme, "id" | "name" | "description" | "emoji" | "palette"> {
   // Additional fields beyond HeaderTheme
   // All CampaignThemeBase fields are included
 }

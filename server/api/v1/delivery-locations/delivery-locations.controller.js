@@ -2,6 +2,17 @@ const { getDatabaseConnection } = require('../../../config/turso');
 const { generateNotFoundError, generateValidationError } = require('../../../utils/error-classes');
 const logger = require('../../../utils/logger');
 
+const TRUSTED_LOCATION_ACCURACY_METERS = 150;
+
+function getGeocodedAddressProperties(feature) {
+  const properties = feature?.properties || {};
+  const area = properties.suburb || properties.neighbourhood || properties.district || properties.city_district || properties.city || '';
+  const city = properties.city || properties.town || properties.village || properties.municipality || properties.county || '';
+  const state = properties.state || properties.state_code || '';
+
+  return { properties, area: String(area).trim(), city: String(city).trim(), state: String(state).trim() };
+}
+
 /**
  * Get delivery locations with filtering
  * @route GET /api/v1/delivery-locations
@@ -203,7 +214,7 @@ const searchLocations = async (req, res) => {
  */
 const reverseGeocode = async (req, res) => {
   try {
-    const { latitude, longitude } = req.body;
+    const { latitude, longitude, accuracy } = req.body;
 
     // Validate input
     if (typeof latitude !== 'number' || typeof longitude !== 'number') {
@@ -219,9 +230,17 @@ const reverseGeocode = async (req, res) => {
       throw generateValidationError('Longitude must be between -180 and 180 degrees');
     }
 
+    if (accuracy !== undefined && (typeof accuracy !== 'number' || !Number.isFinite(accuracy) || accuracy < 0)) {
+      throw generateValidationError('Accuracy must be a non-negative number of meters');
+    }
+
+    const hasLowAccuracy = accuracy !== undefined && accuracy > 1000;
+
     // 1. Try Geoapify Reverse Geocoding API first. The key is server-side only;
     // never expose it in the browser bundle.
     let extractedPincode = null;
+    let geocodedAddress = { area: '', city: '', state: '' };
+    let learnedPincode = false;
     try {
       const apiKey = String(process.env.GEOAPIFY_API_KEY || '').trim();
       if (apiKey) {
@@ -247,11 +266,13 @@ const reverseGeocode = async (req, res) => {
 
         if (Array.isArray(geoData.features)) {
           for (const feature of geoData.features) {
-            const properties = feature?.properties || {};
+            const address = getGeocodedAddressProperties(feature);
+            const properties = address.properties;
             const postcode = properties.postcode || properties.post_code || properties.postal_code;
             const normalizedPincode = String(postcode || '').match(/\b\d{6}\b/)?.[0];
             if (normalizedPincode) {
               extractedPincode = normalizedPincode;
+              geocodedAddress = address;
               break;
             }
           }
@@ -273,6 +294,47 @@ const reverseGeocode = async (req, res) => {
 
       if (result.rows.length > 0) {
         location = result.rows[0];
+      }
+    }
+
+    // Learn a trusted pincode from the user's exact browser reading. New
+    // records remain unserviceable until an admin reviews and enables them.
+    const isTrustedReading = accuracy !== undefined && accuracy <= TRUSTED_LOCATION_ACCURACY_METERS;
+    if (extractedPincode && isTrustedReading) {
+      const area = geocodedAddress.area || `Pincode ${extractedPincode}`;
+      const city = geocodedAddress.city || 'Kolkata';
+      const state = geocodedAddress.state || 'West Bengal';
+
+      if (!location) {
+        await db.execute({
+          sql: `
+            INSERT INTO available_pincodes
+              (pincode, area, city, state, is_serviceable, latitude, longitude, updated_at)
+            VALUES (?, ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(pincode) DO UPDATE SET
+              latitude = COALESCE(available_pincodes.latitude, excluded.latitude),
+              longitude = COALESCE(available_pincodes.longitude, excluded.longitude),
+              updated_at = CURRENT_TIMESTAMP
+          `,
+          args: [extractedPincode, area, city, state, latitude, longitude]
+        });
+        learnedPincode = true;
+        const learned = await db.execute({
+          sql: 'SELECT * FROM available_pincodes WHERE pincode = ?',
+          args: [extractedPincode]
+        });
+        location = learned.rows[0] || null;
+      } else if (location.latitude == null || location.longitude == null) {
+        await db.execute({
+          sql: `
+            UPDATE available_pincodes
+            SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE pincode = ? AND (latitude IS NULL OR longitude IS NULL)
+          `,
+          args: [latitude, longitude, extractedPincode]
+        });
+        location = { ...location, latitude, longitude };
+        learnedPincode = true;
       }
     }
 
@@ -308,7 +370,10 @@ const reverseGeocode = async (req, res) => {
         state: location.state || '',
         isServiceable: location.is_serviceable === 1,
         latitude: location.latitude,
-        longitude: location.longitude
+        longitude: location.longitude,
+        accuracy: accuracy ?? null,
+        accuracyWarning: hasLowAccuracy,
+        learnedPincode
       }
     });
   } catch (error) {

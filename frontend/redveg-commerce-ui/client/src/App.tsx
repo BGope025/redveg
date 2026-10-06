@@ -18,6 +18,7 @@ const ShopPage = lazy(() => import("@/pages/storefront/ShopPage"));
 const ProductPage = lazy(() => import("@/pages/storefront/ProductPage"));
 const CartPage = lazy(() => import("@/pages/storefront/CartPage"));
 const CheckoutPage = lazy(() => import("@/pages/storefront/CheckoutPage"));
+const CustomerProfilePage = lazy(() => import("@/pages/CustomerProfilePage"));
 const AdminDashboard = lazy(() => import("@/pages/admin/AdminDashboard"));
 const AdminOrders = lazy(() => import("@/pages/admin/AdminOrders"));
 const AdminCatalog = lazy(() => import("@/pages/admin/AdminCatalog"));
@@ -28,7 +29,9 @@ const AdminAnalytics = lazy(() => import("@/pages/admin/AdminAnalytics"));
 const AdminModule = lazy(() => import("@/pages/admin/AdminModule"));
 const AdminHeaderTheme = lazy(() => import("@/pages/admin/AdminHeaderTheme"));
 const AdminCampaignForm = lazy(() => import("@/pages/admin/AdminCampaignForm"));
-const AdminDeliveryAreas = lazy(() => import("@/pages/admin/AdminDeliveryAreas"));
+const AdminDeliveryAreas = lazy(
+  () => import("@/pages/admin/AdminDeliveryAreas")
+);
 const AdminLoginPage = lazy(() => import("@/pages/admin/AdminLoginPage"));
 
 function ScrollToTop() {
@@ -40,7 +43,16 @@ function ScrollToTop() {
 }
 
 function RouteLoader() {
-  return <div className="grid min-h-screen place-items-center bg-[#FFFDF9]"><div className="text-center"><div className="mx-auto size-9 animate-spin rounded-full border-2 border-[#E9D8D4] border-t-[#B4232C]" /><p className="mt-4 text-xs font-black uppercase tracking-[0.18em] text-[#B4232C]">Preparing RedVeg</p></div></div>;
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#FFFDF9]">
+      <div className="text-center">
+        <div className="mx-auto size-9 animate-spin rounded-full border-2 border-[#E9D8D4] border-t-[#B4232C]" />
+        <p className="mt-4 text-xs font-black uppercase tracking-[0.18em] text-[#B4232C]">
+          Preparing RedVeg
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function Router() {
@@ -56,65 +68,106 @@ function Router() {
           <Route path="/cart" component={CartPage} />
           <Route path="/checkout" component={CheckoutPage} />
           <Route path="/login" component={LoginPage} />
+          <Route
+            path="/profile"
+            component={() => (
+              <ProtectedRoute redirectTo="/login?returnTo=%2Fprofile">
+                <CustomerProfilePage />
+              </ProtectedRoute>
+            )}
+          />
           <Route path="/admin/login" component={AdminLoginPage} />
           <Route path="/404" component={NotFound} />
 
           {/* PROTECTED ADMIN ROUTES */}
-          <Route path="/admin" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminDashboard />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/orders" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminOrders />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/catalog" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminCatalog />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/offers" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminOffers />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/coupons" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminCoupons />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/delivery" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminDeliveryAreas />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/customers" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminCustomers />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/settings" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminModule />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/analytics" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminAnalytics />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/header-theme" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminHeaderTheme />
-            </ProtectedRoute>
-          )} />
-          <Route path="/admin/campaigns/:id" component={() => (
-            <ProtectedRoute adminOnly>
-              <AdminCampaignForm />
-            </ProtectedRoute>
-          )} />
+          <Route
+            path="/admin"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminDashboard />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/orders"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminOrders />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/catalog"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminCatalog />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/offers"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminOffers />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/coupons"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminCoupons />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/delivery"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminDeliveryAreas />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/customers"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminCustomers />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/settings"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminModule />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/analytics"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminAnalytics />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/header-theme"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminHeaderTheme />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/campaigns/:id"
+            component={() => (
+              <ProtectedRoute adminOnly>
+                <AdminCampaignForm />
+              </ProtectedRoute>
+            )}
+          />
 
           <Route component={NotFound} />
         </Switch>

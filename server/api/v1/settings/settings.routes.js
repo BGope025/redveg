@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../../../middleware/auth.middleware');
+const { protect, authorize } = require('../../../middleware/auth.middleware');
 const {
   getSetting,
   upsertSetting,
@@ -11,7 +11,7 @@ const {
 router.get('/:type', getSetting);
 
 // Protected routes for updating/deleting settings (require authentication)
-router.use(protect);
+router.use(protect, authorize('admin'));
 
 router.put('/:type', upsertSetting); // Update or create setting
 router.delete('/:type', deleteSetting); // Delete setting (reset to default)

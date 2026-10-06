@@ -2,11 +2,19 @@ const express = require('express');
 const router = express.Router();
 const { registerCustomer, loginCustomer, getCustomerProfile, getAllCustomers, getCustomerSalesInvoices, updateCustomerSalesInvoicePayment } = require('./customers.controller');
 const { authenticateCustomer } = require('../../../middleware/customer-auth.middleware');
+const { authenticateFirebaseCustomer } = require('../../../middleware/firebase-customer-auth.middleware');
+const { getMyProfile, getMyOrders, createMyAddress, deleteMyAddress } = require('./customer-account.controller');
 const { protect, authorize } = require('../../../middleware/auth.middleware');
 
 // Public routes
 router.post('/register', registerCustomer);
 router.post('/login', loginCustomer);
+
+// Firebase-authenticated storefront account routes. Identity always comes from the verified token.
+router.get('/me', authenticateFirebaseCustomer, getMyProfile);
+router.get('/me/orders', authenticateFirebaseCustomer, getMyOrders);
+router.post('/me/addresses', authenticateFirebaseCustomer, createMyAddress);
+router.delete('/me/addresses/:addressId', authenticateFirebaseCustomer, deleteMyAddress);
 
 // Protected routes
 router.get('/profile', authenticateCustomer, getCustomerProfile);
