@@ -8,12 +8,7 @@
     "dev": "nodemon server/server.js",
     "test": "node --test test/backend-api.test.js"
   },
-  "keywords": [
-    "ecommerce",
-    "express",
-    "turso",
-    "cloudinary"
-  ],
+  "keywords": ["ecommerce", "express", "turso", "cloudinary"],
   "author": "RedVeg Team",
   "license": "MIT",
   "dependencies": {
@@ -24,7 +19,7 @@
     "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
+    "dotenv": "^16.3.0",
     "express": "^4.18.2",
     "google-auth-library": "^11.1.0",
     "jsonwebtoken": "^9.0.1",
@@ -37,12 +32,7 @@
     "nodemon": "^3.0.1"
   },
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "@firebase/util",
-      "esbuild",
-      "protobufjs",
-      "sharp"
-    ]
+    "onlyBuiltDependencies": ["@firebase/util", "esbuild", "protobufjs", "sharp"]
   },
   "pnpm.overrides": {
     "node-fetch": "2.7.0"
