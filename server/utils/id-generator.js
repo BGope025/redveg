@@ -1,3 +1,5 @@
+const { randomUUID } = require('crypto');
+
 /**
  * Generate a clean order ID in the format: #RV-XXXX
  * Where XXXX is a random 4-digit number
@@ -8,21 +10,17 @@ const generateOrderId = () => {
 };
 
 /**
- * Generate a clean product ID in the format: PRD-XXXX
- * Where XXXX is a random 4-digit number
+ * Generate collision-resistant product and variant IDs. These are internal
+ * identifiers (not customer-facing numbers), so UUIDs prevent catalog growth
+ * from exhausting a small four-digit ID space.
  */
 const generateProductId = () => {
-  const randomNum = Math.floor(1000 + Math.random() * 9000); // 4-digit number (1000-9999)
-  return `PRD-${randomNum}`;
+  return `PRD-${randomUUID()}`;
 };
 
-/**
- * Generate a clean variant ID in the format: VAR-XXXX
- * Where XXXX is a random 4-digit number
- */
+/** Generate a collision-resistant internal variant ID. */
 const generateVariantId = () => {
-  const randomNum = Math.floor(1000 + Math.random() * 9000); // 4-digit number (1000-9999)
-  return `VAR-${randomNum}`;
+  return `VAR-${randomUUID()}`;
 };
 
 /**
@@ -68,10 +66,10 @@ const generateCartSnapshot = async (cartItems, catalogDb) => {
     // Get product and variant details from catalog
     const result = await catalogDb.execute({
       sql: `
-        SELECT p.name as product_name, v.sku, v.size, v.weight, v.price
+        SELECT p.name as product_name, v.sku, v.size, v.weight, v.piece_size, v.price, v.stock_count, v.is_available
         FROM products p
         JOIN variants v ON p.id = v.product_id
-        WHERE p.id = ? AND v.id = ?
+        WHERE p.id = ? AND v.id = ? AND p.is_active = 1 AND v.is_available = 1
       `,
       args: [productId, variantId]
     });
@@ -81,6 +79,9 @@ const generateCartSnapshot = async (cartItems, catalogDb) => {
     }
 
     const variantDetails = result.rows[0];
+    if (Number(variantDetails.stock_count) < quantity) {
+      throw new Error(`Insufficient stock for ${variantId}`);
+    }
 
     snapshot.push({
       productId,
@@ -89,6 +90,8 @@ const generateCartSnapshot = async (cartItems, catalogDb) => {
       sku: variantDetails.sku,
       size: variantDetails.size,
       weight: variantDetails.weight,
+      piece_size: variantDetails.piece_size || null,
+      variant: [variantDetails.size, variantDetails.weight, variantDetails.piece_size].filter(Boolean).join(' / '),
       price: parseFloat(variantDetails.price),
       quantity: quantity
     });

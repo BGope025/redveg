@@ -1,0 +1,19 @@
+{
+  "source": "Pinned service-area estimates for RedVeg's enabled postcodes missing from the Kolkata postal-office directory",
+  "postalCodes": [
+    { "pincode": "700028", "area": "Dum Dum", "city": "Kolkata", "state": "West Bengal", "latitude": 22.632194, "longitude": 88.416111, "coordinateSource": "Dum Dum delivery post office" },
+    { "pincode": "700035", "area": "Alambazar", "city": "Kolkata", "state": "West Bengal", "latitude": 22.6495, "longitude": 88.3634, "coordinateSource": "Alambazar postal-area estimate" },
+    { "pincode": "700036", "area": "Baranagar", "city": "Kolkata", "state": "West Bengal", "latitude": 22.632444, "longitude": 88.355389, "coordinateSource": "Baranagar postal-office point" },
+    { "pincode": "700048", "area": "Sreebhumi", "city": "Kolkata", "state": "West Bengal", "latitude": 22.601215, "longitude": 88.403325, "coordinateSource": "Sreebhumi postal-area estimate" },
+    { "pincode": "700049", "area": "Nimta", "city": "Kolkata", "state": "West Bengal", "latitude": 22.6676, "longitude": 88.4074, "coordinateSource": "Nimta postal-area estimate" },
+    { "pincode": "700051", "area": "Birati", "city": "Kolkata", "state": "West Bengal", "latitude": 22.664707, "longitude": 88.426447, "coordinateSource": "Birati postal-area estimate" },
+    { "pincode": "700052", "area": "Kolkata Airport", "city": "Kolkata", "state": "West Bengal", "latitude": 22.646472, "longitude": 88.439972, "coordinateSource": "Kolkata Airport delivery post office" },
+    { "pincode": "700055", "area": "Bangur Avenue", "city": "Kolkata", "state": "West Bengal", "latitude": 22.60472, "longitude": 88.41611, "coordinateSource": "Bangur Avenue postal-area estimate" },
+    { "pincode": "700056", "area": "Belgharia", "city": "Kolkata", "state": "West Bengal", "latitude": 22.663595, "longitude": 88.388316, "coordinateSource": "Belgharia postal-area estimate" },
+    { "pincode": "700057", "area": "Ariadaha", "city": "Kolkata", "state": "West Bengal", "latitude": 22.6688, "longitude": 88.3675, "coordinateSource": "Ariadaha postal-area estimate" },
+    { "pincode": "700058", "area": "Kamarhati", "city": "Kolkata", "state": "West Bengal", "latitude": 22.6741, "longitude": 88.36935, "coordinateSource": "Kamarhati postal-area estimate" },
+    { "pincode": "700059", "area": "Baguiati", "city": "Kolkata", "state": "West Bengal", "latitude": 22.6094952294, "longitude": 88.4359881952, "coordinateSource": "Baguiati postal-area estimate" },
+    { "pincode": "700064", "area": "Salt Lake Sector I", "city": "Kolkata", "state": "West Bengal", "latitude": 22.59022, "longitude": 88.412524, "coordinateSource": "Salt Lake postal-area estimate" },
+    { "pincode": "700065", "area": "Rabindra Nagar", "city": "Kolkata", "state": "West Bengal", "latitude": 22.64225, "longitude": 88.409694, "coordinateSource": "Rabindra Nagar delivery post office" }
+  ]
+}

@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../../../../middleware/auth.middleware');
-const { getAllAdminVariants } = require('../../variants/variants.controller');
 const {
+  getAllAdminVariants,
   updateVariant,
   deleteVariant
-} = require('../../products/products.controller');
+} = require('../../variants/variants.controller');
 
 router.use(protect);
 router.use(authorize('admin'));

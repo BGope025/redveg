@@ -2,6 +2,7 @@ const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
 const { getDatabaseConnection } = require('../../../config/turso');
 const logger = require('../../../utils/logger');
+const { getStaffAccess, writeActivity } = require('../../../services/admin-security.service');
 
 // Retrieve from environment or use a placeholder if not set
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -16,29 +17,31 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
  */
 const googleLogin = async (req, res) => {
   try {
-    const { idToken } = req.body;
+    const { idToken, loginAs } = req.body;
     
-    if (!idToken) {
+    if (!idToken || !['owner', 'employee'].includes(loginAs)) {
       return res.status(400).json({
         success: false,
-        message: 'ID token is required'
+        message: 'Choose Owner or Employee and provide an ID token.'
       });
     }
 
     // Verify Google ID token
-    // If GOOGLE_CLIENT_ID is not set in env, it skips audience validation (for demo purposes)
-    const ticket = await client.verifyIdToken({
-      idToken: idToken,
-      audience: GOOGLE_CLIENT_ID ? GOOGLE_CLIENT_ID : undefined, 
-    });
+    if (!GOOGLE_CLIENT_ID) {
+      return res.status(503).json({ success: false, message: 'Google sign-in is not configured.' });
+    }
+    const ticket = await client.verifyIdToken({ idToken, audience: GOOGLE_CLIENT_ID });
     
     const payload = ticket.getPayload();
     const email = payload.email;
+    if (payload.email_verified !== true) {
+      return res.status(403).json({ success: false, message: 'A verified Google email is required.' });
+    }
 
     // Authorize admin emails. For production, define ADMIN_EMAILS in .env (comma separated)
-    const adminEmails = (process.env.ADMIN_EMAILS || 'admin@redveg.com').split(',').map(e => e.trim());
+    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
     
-    if (!adminEmails.includes(email)) {
+    if (!email || !adminEmails.includes(email.toLowerCase())) {
       logger.warn(`Unauthorized OAuth attempt with email: ${email}`);
       return res.status(403).json({
         success: false,
@@ -51,32 +54,24 @@ const googleLogin = async (req, res) => {
 
     // Find user by email (used as username here)
     const userResult = await db.execute({
-      sql: 'SELECT id, username, role FROM users WHERE username = ?',
+      sql: `SELECT id, username, role FROM users WHERE LOWER(email) = LOWER(?) AND LOWER(TRIM(role)) = 'admin' LIMIT 1`,
       args: [email]
     });
-
-    let user;
-
-    if (userResult.rows.length === 0) {
-      // If admin user doesn't exist yet, auto-provision their account
-      const userId = require('crypto').randomUUID();
-      await db.execute({
-        sql: 'INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)',
-        // Use a dummy password hash since they use OAuth
-        args: [userId, email, 'oauth_provider_managed', 'admin']
-      });
-      user = { id: userId, username: email, role: 'admin' };
-      logger.info(`Auto-provisioned new admin OAuth user: ${email}`);
-    } else {
-      user = userResult.rows[0];
+    const user = userResult.rows[0];
+    if (!user) return res.status(403).json({ success: false, message: 'This employee account is not activated for Google sign-in.' });
+    const staffAccess = await getStaffAccess(db, user.id);
+    if (!staffAccess?.isAdminStaff || Number(staffAccess.is_active) !== 1) {
+      return res.status(403).json({ success: false, message: 'This employee account is inactive.' });
     }
+    const accountType = staffAccess.role === 'owner' ? 'owner' : 'employee';
+    if (accountType !== loginAs) return res.status(403).json({ success: false, message: `This account is not an ${loginAs === 'owner' ? 'Owner' : 'employee'} account.` });
 
     // Generate JWT token
     const token = jwt.sign(
       {
         userId: user.id,
         username: user.username,
-        role: user.role
+        role: staffAccess.role
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
@@ -99,11 +94,14 @@ const googleLogin = async (req, res) => {
         user: {
           id: user.id,
           username: user.username,
-          role: user.role
+          role: staffAccess.role,
+          permissions: staffAccess.permissions,
+          adminAccess: true
         },
         token // Return token in body as well
       }
     });
+    await writeActivity(db, { user: { userId: user.id, username: user.username }, action: 'auth.google_login.success', resource: '/auth/oauth/google', method: 'POST', status: 200, ip: req.ip, userAgent: req.get('user-agent') });
   } catch (error) {
     logger.error('OAuth login error:', error);
     res.status(401).json({

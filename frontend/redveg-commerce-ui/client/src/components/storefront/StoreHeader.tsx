@@ -6,12 +6,13 @@ import { useLocation } from "@/contexts/LocationContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useHeaderTheme } from "@/contexts/HeaderThemeContext";
 import { useCampaign } from "@/contexts/CampaignContext";
+import { CampaignWhatsAppButton } from "@/components/storefront/CampaignWhatsAppButton";
+import { isWhatsAppCampaignUrl } from "@/lib/campaignWhatsapp";
 import {
   ChevronDown,
   Loader2,
   LogOut,
   MapPin,
-  Menu,
   Search,
   ShoppingBag,
   UserRound,
@@ -28,12 +29,21 @@ import {
 } from "wouter";
 import type { DeliveryLocation } from "@/contexts/LocationContext";
 
+const LOCATION_PROMPTED_KEY = "redveg_location_prompted";
+
 export function StoreHeader() {
   const { itemCount } = useCart();
   const { location, setLocation } = useLocation();
   const { user, isAuthenticated, signOutUser } = useAuth();
   const { effectiveTheme } = useHeaderTheme();
-  const { activeCampaign } = useCampaign();
+  const { activeCampaigns } = useCampaign();
+  const headerCampaigns = activeCampaigns.filter(campaign =>
+    campaign.placement === "header_strip" || campaign.placement === "both"
+  );
+  const [headerCampaignIndex, setHeaderCampaignIndex] = useState(0);
+  const activeCampaign = headerCampaigns.length
+    ? headerCampaigns[headerCampaignIndex % headerCampaigns.length]
+    : null;
   const [search, setSearch] = useState("");
   const [productSuggestions, setProductSuggestions] = useState<Product[]>([]);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
@@ -44,6 +54,18 @@ export function StoreHeader() {
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [, navigate] = useRouterLocation();
   const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setHeaderCampaignIndex(0);
+  }, [headerCampaigns.map(campaign => campaign.id).join("|")]);
+
+  useEffect(() => {
+    if (headerCampaigns.length < 2) return;
+    const timer = window.setInterval(() => {
+      setHeaderCampaignIndex(index => (index + 1) % headerCampaigns.length);
+    }, 6500);
+    return () => window.clearInterval(timer);
+  }, [headerCampaigns.length]);
 
   const p = effectiveTheme.palette;
   const isDefault = effectiveTheme.id === "default";
@@ -106,18 +128,36 @@ export function StoreHeader() {
     };
   }, [search]);
 
-  // Show dialog on first visit if no saved location
+  // Prompt once per browser when no delivery location is saved. Migrate the
+  // previous session-only marker so an open visit does not see the prompt again.
   useEffect(() => {
     const savedLocation = localStorage.getItem("redveg_delivery_location");
-    if (!savedLocation) {
+    const hasPromptedBefore =
+      localStorage.getItem(LOCATION_PROMPTED_KEY) === "1" ||
+      sessionStorage.getItem(
+        LOCATION_PROMPTED_KEY
+      ) === "1";
+    if (hasPromptedBefore) {
+      localStorage.setItem(LOCATION_PROMPTED_KEY, "1");
+    }
+    if (!savedLocation && !hasPromptedBefore) {
+      localStorage.setItem(LOCATION_PROMPTED_KEY, "1");
       setIsLocationDialogOpen(true);
     }
+  }, []);
+
+  const handleLocationDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      localStorage.setItem(LOCATION_PROMPTED_KEY, "1");
+    }
+    setIsLocationDialogOpen(open);
   }, []);
 
   const openSearchResults = () => {
     const query = search.trim();
     setIsSuggestionsOpen(false);
     setActiveSuggestionIndex(-1);
+    window.dispatchEvent(new CustomEvent("redveg:shop-search", { detail: query }));
     navigate(`/shop${query ? `?q=${encodeURIComponent(query)}` : ""}`);
   };
 
@@ -285,7 +325,9 @@ export function StoreHeader() {
 
   const handleLocationSelected = useCallback(
     (newLocation: DeliveryLocation) => {
-      setLocation(newLocation);
+      const locationSource = newLocation.accuracy != null ? "geolocation" : "pincode";
+      setLocation({ ...newLocation, source: locationSource });
+      localStorage.setItem(LOCATION_PROMPTED_KEY, "1");
       localStorage.setItem(
         "redveg_delivery_location",
         JSON.stringify({
@@ -293,10 +335,7 @@ export function StoreHeader() {
           area: newLocation.area,
           city: newLocation.city,
           state: newLocation.state,
-          source:
-            newLocation.latitude != null && newLocation.longitude != null
-              ? "geolocation"
-              : "pincode",
+          source: locationSource,
           latitude: newLocation.latitude ?? null,
           longitude: newLocation.longitude ?? null,
           accuracy: newLocation.accuracy ?? null,
@@ -349,13 +388,12 @@ export function StoreHeader() {
       <div data-header-theme={effectiveTheme.id} style={themeVars}>
         {/* Top announcement bar */}
         <div style={{ backgroundColor: p.topBarBg, color: p.topBarFg }}>
-          <div className="container flex h-8 items-center justify-between text-[0.7rem] font-semibold tracking-wide">
-            <span>
+          <div className="container flex min-h-10 flex-col items-start justify-center gap-0.5 py-1 text-[0.65rem] font-semibold leading-tight tracking-normal lg:h-8 lg:min-h-0 lg:flex-row lg:items-center lg:justify-between lg:gap-4 lg:py-0 lg:text-[0.7rem] lg:tracking-wide">
+            <span className="w-full truncate lg:w-auto">
               Freshly cut · Hygienically packed · Delivered across Kolkata
-              delivery
             </span>
-            <span className="hidden sm:inline">
-              Order before 6 PM for same-day delivery
+            <span>
+              Order between 8AM - 10AM for same-day delivery
             </span>
           </div>
         </div>
@@ -372,17 +410,6 @@ export function StoreHeader() {
         >
           <div className="container">
             <div className="flex h-[74px] items-center gap-3 lg:h-[84px] lg:gap-7">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="lg:hidden"
-                onClick={() =>
-                  toast("Category menu is available in the bar below.")
-                }
-                aria-label="Open menu"
-              >
-                <Menu className="size-5" />
-              </Button>
               <BrandLogo compact />
 
               {/* Desktop location selector */}
@@ -647,11 +674,12 @@ export function StoreHeader() {
               }}
             >
               <div
-                className="flex min-h-[44px] flex-col items-center justify-center gap-2 px-4 py-2 text-center sm:flex-row sm:gap-4 md:py-0 md:min-h-[48px]"
+                className="flex min-h-[44px] flex-col items-center justify-center gap-2 px-4 py-2 text-center animate-in fade-in slide-in-from-right-3 duration-500 sm:flex-row sm:gap-4 md:py-0 md:min-h-[48px]"
                 style={{
                   backgroundColor: "var(--campaign-bg)",
                   color: "var(--campaign-fg)",
                 }}
+                key={activeCampaign.id}
               >
                 <div className="flex items-center gap-2 md:gap-3">
                   {activeCampaign.logoVariant && (
@@ -678,7 +706,19 @@ export function StoreHeader() {
                 </div>
 
                 {activeCampaign.ctaLabel && (
-                  <button
+                  isWhatsAppCampaignUrl(activeCampaign.destinationValue) ? (
+                    <CampaignWhatsAppButton
+                      href={activeCampaign.destinationValue}
+                      className="group flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-black shadow-sm transition-transform active:scale-95 md:text-sm disabled:cursor-wait disabled:opacity-60"
+                      style={{
+                        backgroundColor: "var(--campaign-button-bg)",
+                        color: "var(--campaign-button-fg)",
+                      }}
+                    >
+                      {activeCampaign.ctaLabel}
+                      <span className="transition-transform group-hover:translate-x-0.5">→</span>
+                    </CampaignWhatsAppButton>
+                  ) : <button
                     type="button"
                     onClick={() => {
                       if (activeCampaign.destinationType === "url") {
@@ -716,7 +756,7 @@ export function StoreHeader() {
               </div>
               {/* Decorative accent line for campaign */}
               <div
-                className="h-1 w-full"
+                className="h-1 w-full transition-colors duration-500"
                 style={{ backgroundColor: "var(--campaign-accent)" }}
               />
             </div>
@@ -738,7 +778,7 @@ export function StoreHeader() {
       {/* Delivery Location Modal — controlled, always in DOM */}
       <DeliveryLocationModal
         open={isLocationDialogOpen}
-        onOpenChange={setIsLocationDialogOpen}
+        onOpenChange={handleLocationDialogOpenChange}
         onLocationSelected={handleLocationSelected}
       />
     </>

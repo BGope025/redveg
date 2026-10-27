@@ -13,6 +13,7 @@ export type DeliveryLocation = {
   accuracy?: number | null;
   accuracyWarning?: boolean;
   learnedPincode?: boolean;
+  source?: "geolocation" | "pincode";
 };
 
 export function useLocation() {
@@ -45,11 +46,14 @@ export function LocationProvider({ children }: { children: ReactNode }) {
                 city: found.city,
                 state: found.state,
                 isServiceable: found.isServiceable,
-                latitude: found.latitude,
-                longitude: found.longitude,
+                // Keep the exact browser coordinates for a GPS-selected
+                // location. Directory coordinates are only pincode centroids.
+                latitude: parsed.source === "geolocation" && parsed.accuracy != null ? parsed.latitude : found.latitude,
+                longitude: parsed.source === "geolocation" && parsed.accuracy != null ? parsed.longitude : found.longitude,
                 accuracy: parsed.accuracy ?? null,
                 accuracyWarning: parsed.accuracyWarning ?? false,
                 learnedPincode: parsed.learnedPincode ?? false,
+                source: parsed.source === "geolocation" && parsed.accuracy != null ? "geolocation" : "pincode",
               });
             } else {
               // Location not found (maybe removed), clear it
@@ -60,7 +64,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
           .catch(err => {
             // If validation fails, we keep the saved location but log error
             console.warn("Failed to validate saved location:", err);
-            setLocation(parsed);
+            setLocation({ ...parsed, source: parsed.source === "geolocation" && parsed.accuracy != null ? "geolocation" : "pincode" });
           });
       } catch (error) {
         console.error("Error parsing location from localStorage:", error);

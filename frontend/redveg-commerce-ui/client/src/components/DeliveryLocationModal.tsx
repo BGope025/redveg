@@ -21,7 +21,7 @@ interface DeliveryLocationModalProps {
 }
 
 function getBestCurrentPosition({
-  targetAccuracy = 75,
+  targetAccuracy = 1000,
   maxWaitMs = 20000,
 }: {
   targetAccuracy?: number;
@@ -62,8 +62,16 @@ function getBestCurrentPosition({
         }
         if (position.coords.accuracy <= targetAccuracy) finish(position);
       },
-      fail,
-      { enableHighAccuracy: true, maximumAge: 0, timeout: maxWaitMs }
+      error => {
+        // Browsers report a timeout when they cannot improve the reading to
+        // the requested accuracy. Keep the best location already received.
+        if (error.code === 3 && bestPosition) {
+          finish(bestPosition);
+        } else {
+          fail(error);
+        }
+      },
+      { enableHighAccuracy: false, maximumAge: 60_000, timeout: maxWaitMs }
     );
 
     timeoutId = window.setTimeout(() => {
@@ -137,7 +145,7 @@ export function DeliveryLocationModal({
     try {
       const searchResults = await deliveryLocationApi.search(
         searchQuery,
-        true,
+        false,
         controller.signal
       );
       if (controller.signal.aborted) return;
@@ -174,6 +182,13 @@ export function DeliveryLocationModal({
         accuracy
       );
 
+      if (!location.isServiceable) {
+        setSelectedLocation(null);
+        setQuery(`${location.area}, ${location.city} · ${location.pincode}`);
+        setGeolocationError("Delivery is currently unavailable in this area. Search for another pincode or contact RedVeg.");
+        return;
+      }
+
       setSelectedLocation({ ...location, accuracy });
       setQuery(`${location.area}, ${location.city} · ${location.pincode}`);
       if (accuracy > 150) {
@@ -192,7 +207,7 @@ export function DeliveryLocationModal({
         );
       } else if (err.code === 3) {
         setGeolocationError(
-          "Geolocation request timed out. Please try again or search by pincode."
+          "We couldn't get your location automatically. Please try again or search by pincode."
         );
       } else {
         setGeolocationError(
@@ -261,7 +276,8 @@ export function DeliveryLocationModal({
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Search your pincode..."
                 className="w-full px-4 py-3 rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-0 disabled:opacity-50"
-                disabled={loading || geolocationLoading}
+                aria-busy={loading}
+                disabled={geolocationLoading}
               />
               {loading && (
                 <Loader2Icon className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-primary animate-spin" />
@@ -320,11 +336,16 @@ export function DeliveryLocationModal({
                   <button
                     key={`${location.pincode}-${index}`}
                     onClick={() => handleLocationSelect(location)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border border-background text-left
+                    disabled={!location.isServiceable}
+                    aria-disabled={!location.isServiceable}
+                    title={!location.isServiceable ? "Delivery is currently unavailable in this area" : undefined}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border border-background text-left disabled:cursor-not-allowed disabled:opacity-65
                       ${
                         selectedLocation?.pincode === location.pincode
                           ? "bg-primary text-primary-foreground"
-                          : "hover:bg-accent hover:text-accent-foreground"
+                          : location.isServiceable
+                            ? "hover:bg-accent hover:text-accent-foreground"
+                            : "bg-muted/40"
                       }
                       focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-0
                       transition-all duration-150`}

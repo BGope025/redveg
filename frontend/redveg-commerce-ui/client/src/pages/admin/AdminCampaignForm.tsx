@@ -20,17 +20,31 @@ import {
   MessageSquare,
 } from "lucide-react";
 
+const REDVEG_TIME_ZONE = "Asia/Kolkata";
+const IST_OFFSET_MINUTES = 330;
+
+function toIstDateTimeInput(date: Date) {
+  return new Date(date.getTime() + IST_OFFSET_MINUTES * 60_000).toISOString().slice(0, 16);
+}
+
+function dateTimeInputValue(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : toIstDateTimeInput(date);
+}
+
+function parseIstDateTimeInput(value: string) {
+  return new Date(`${value}:00+05:30`);
+}
+
 const emptyCampaign: Partial<Campaign> = {
   name: "",
   slug: "",
   occasion: "custom",
   status: "draft",
-  startsAt: new Date().toISOString().slice(0, 16),
-  endsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 16),
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  placement: "header_strip",
+  startsAt: toIstDateTimeInput(new Date()),
+  endsAt: toIstDateTimeInput(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
+  timezone: REDVEG_TIME_ZONE,
+  placement: "both",
   priority: 10,
   label: "",
   message: "",
@@ -97,8 +111,8 @@ export default function AdminCampaignForm({
             // Convert ISO timestamps to datetime-local format for form
             setFormData({
               ...data,
-              startsAt: new Date(data.startsAt).toISOString().slice(0, 16),
-              endsAt: new Date(data.endsAt).toISOString().slice(0, 16),
+              startsAt: dateTimeInputValue(data.startsAt),
+              endsAt: dateTimeInputValue(data.endsAt),
             });
           } else {
             setError("Campaign not found");
@@ -116,8 +130,8 @@ export default function AdminCampaignForm({
       // Use pre-loaded campaign data
       setFormData({
         ...campaign,
-        startsAt: new Date(campaign.startsAt).toISOString().slice(0, 16),
-        endsAt: new Date(campaign.endsAt).toISOString().slice(0, 16),
+        startsAt: dateTimeInputValue(campaign.startsAt),
+        endsAt: dateTimeInputValue(campaign.endsAt),
       });
     }
   }, [isEditing, effectiveCampaignId, campaign, onClose]);
@@ -147,8 +161,8 @@ export default function AdminCampaignForm({
       toast.error(message);
       return;
     }
-    const startsAt = new Date(formData.startsAt || "");
-    const endsAt = new Date(formData.endsAt || "");
+    const startsAt = parseIstDateTimeInput(formData.startsAt || "");
+    const endsAt = parseIstDateTimeInput(formData.endsAt || "");
     if (
       Number.isNaN(startsAt.getTime()) ||
       Number.isNaN(endsAt.getTime()) ||
@@ -177,6 +191,7 @@ export default function AdminCampaignForm({
       const dataToSave = {
         ...formData,
         status,
+        timezone: REDVEG_TIME_ZONE,
         startsAt: startsAt.toISOString(),
         endsAt: endsAt.toISOString(),
       } as Campaign;
@@ -187,9 +202,15 @@ export default function AdminCampaignForm({
           effectiveCampaignId,
           dataToSave
         );
+        if (!result) {
+          throw new Error("Campaign was not found on the server. No changes were saved.");
+        }
         toast.success("Campaign updated successfully");
       } else {
         result = await campaignApi.createCampaign(dataToSave);
+        if (!result) {
+          throw new Error("The server did not confirm the campaign save.");
+        }
         toast.success("Campaign created successfully");
       }
 
@@ -425,24 +446,52 @@ export default function AdminCampaignForm({
                   <option value="christmas">Christmas</option>
                 </select>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">Placement</label>
-                <select
-                  name="placement"
-                  value={formData.placement || ""}
-                  onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <option value="header_strip">Header Strip Only</option>
-                  <option value="collection_module">
-                    Collection Module Only
-                  </option>
-                  <option value="both">Both</option>
-                </select>
-              </div>
+              <fieldset className="md:col-span-2">
+                  <legend className="text-sm font-bold">Where should this campaign appear?</legend>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Choose where this campaign appears. The homepage hero slideshow stays focused on RedVeg’s regular storefront slides.
+                  </p>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    {([
+                      {
+                        value: "header_strip" as CampaignPlacement,
+                        title: "Top announcement bar",
+                        description: "Rotates in the slim bar above the storefront header.",
+                      },
+                      {
+                        value: "collection_module" as CampaignPlacement,
+                        title: "Offer box below hero",
+                        description: "Rotates in the large campaign box below the hero slideshow.",
+                      },
+                      {
+                        value: "both" as CampaignPlacement,
+                        title: "Both storefront boxes",
+                        description: "Shows in the top announcement bar and the offer box below the hero.",
+                      },
+                    ]).map(option => (
+                      <label
+                        key={option.value}
+                        className={`flex cursor-pointer gap-3 rounded-2xl border p-4 transition ${formData.placement === option.value ? "border-[#B4232C] bg-[#FFF7F6] ring-2 ring-[#B4232C]/10" : "border-black/10 bg-white hover:border-[#B4232C]/40"}`}
+                      >
+                        <input
+                          type="radio"
+                          name="placement"
+                          value={option.value}
+                          checked={formData.placement === option.value}
+                          onChange={() => setFormData(previous => ({ ...previous, placement: option.value }))}
+                          className="mt-1 size-4 accent-[#B4232C]"
+                        />
+                        <span>
+                          <span className="block text-sm font-bold">{option.title}</span>
+                          <span className="mt-1 block text-xs leading-5 text-muted-foreground">{option.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+              </fieldset>
               <div className="space-y-2">
                 <label className="text-sm font-semibold">
-                  Start Date & Time
+                  Start Date & Time (IST, GMT+5:30)
                 </label>
                 <Input
                   type="datetime-local"
@@ -452,7 +501,7 @@ export default function AdminCampaignForm({
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-semibold">End Date & Time</label>
+                <label className="text-sm font-semibold">End Date & Time (IST, GMT+5:30)</label>
                 <Input
                   type="datetime-local"
                   name="endsAt"
@@ -462,7 +511,7 @@ export default function AdminCampaignForm({
               </div>
               <div className="space-y-2 md:col-span-2">
                 <label className="text-sm font-semibold">
-                  Desktop hero image URL
+                  Desktop campaign image URL
                 </label>
                 <Input
                   name="desktopImageUrl"
@@ -472,7 +521,7 @@ export default function AdminCampaignForm({
                 />
                 <p className="text-xs text-muted-foreground">
                   Required when publishing. This image is shown in the
-                  storefront hero slideshow.
+                  campaign image in its selected storefront placement.
                 </p>
               </div>
               <div className="space-y-2 md:col-span-2">

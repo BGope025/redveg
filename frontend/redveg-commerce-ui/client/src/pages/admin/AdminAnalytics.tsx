@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
+import { formatISTDateTime, getISTDateInputValue } from "@/lib/dateTime";
 import { RefreshCw, Loader2, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import {
   LineChart,
@@ -26,7 +27,7 @@ const AdminAnalytics = () => {
   const [bucket, setBucket] = useState<"day" | "week" | "month">("month");
   const [transactionForm, setTransactionForm] = useState({
     transactionType: "purchase",
-    transactionDate: new Date().toISOString().slice(0, 10),
+    transactionDate: getISTDateInputValue(),
     category: "",
     description: "",
     amount: "",
@@ -694,10 +695,11 @@ const AdminAnalytics = () => {
       <div className="mt-6 flex justify-between items-center">
         <p className="text-xs text-muted-foreground">
           Last updated:{" "}
-          {new Date().toLocaleTimeString("en-IN", {
+          {formatISTDateTime(new Date().toISOString(), {
             hour: "2-digit",
             minute: "2-digit",
-          })}
+            hour12: true,
+          })} IST
         </p>
         <p className="text-xs text-muted-foreground">
           Online-store earnings include approved, delivered and completed

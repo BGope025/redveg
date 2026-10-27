@@ -3,7 +3,9 @@ import { Link } from "wouter";
 import { toast } from "sonner";
 import {
   ArrowRight,
+  MessageCircle,
   FileText,
+  Heart,
   Loader2,
   MapPin,
   PackageCheck,
@@ -18,7 +20,11 @@ import { StoreShell } from "@/components/storefront/StoreShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, unwrapApiData } from "@/lib/api";
+import { formatISTDateTime } from "@/lib/dateTime";
+import { useWishlist } from "@/contexts/WishlistContext";
+import { ProductCard } from "@/components/storefront/ProductCard";
+import type { Product } from "@/types/commerce";
 
 type CustomerProfile = {
   displayName: string | null;
@@ -41,8 +47,12 @@ type SavedAddress = {
 
 type OrderReceipt = {
   id: string;
-  receiptNumber: string;
+  receiptNumber: string | null;
+  receiptIssuedAt: string | null;
   status: string;
+  cancellationStatus: "none" | "requested" | "approved" | "declined";
+  cancellationRequestedAt: string | null;
+  cancellationReviewNote: string | null;
   createdAt: string;
   customerName: string;
   phoneNumber: string;
@@ -50,9 +60,12 @@ type OrderReceipt = {
   subtotalAmount: number;
   discountAmount: number;
   deliveryFee: number;
+  deliveryDistanceKm: number;
+  deliveryRatePerKm: number;
   couponCode: string | null;
   totalAmount: number;
   paymentStatus: string;
+  paymentMethod: string | null;
   receivedAmount: number;
   balanceAmount: number;
   items: Array<{
@@ -110,16 +123,15 @@ function formatMoney(value: number) {
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "Date unavailable";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Date unavailable";
-  return new Intl.DateTimeFormat("en-IN", {
+  return formatISTDateTime(value, {
     day: "numeric",
     month: "short",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(date);
+    hour12: true,
+    timeZoneName: "short",
+  });
 }
 
 function statusTone(status: string) {
@@ -135,19 +147,55 @@ function statusTone(status: string) {
 
 export default function CustomerProfilePage() {
   const { user, getCustomerIdToken, signOutUser } = useAuth();
+  const { favoriteIds, loading: favoritesLoading, loadError: favoritesLoadError } = useWishlist();
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [orders, setOrders] = useState<OrderReceipt[]>([]);
+  const [favoriteProducts, setFavoriteProducts] = useState<Product[]>([]);
+  const [favoriteCatalogLoading, setFavoriteCatalogLoading] = useState(false);
+  const [favoriteCatalogError, setFavoriteCatalogError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState("");
+  const [savingPhone, setSavingPhone] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
   const [removingAddressId, setRemovingAddressId] = useState<string | null>(
     null
   );
   const [addressForm, setAddressForm] = useState<AddressForm>(emptyAddress);
   const [openReceiptId, setOpenReceiptId] = useState<string | null>(null);
+  const [requestingCancellationId, setRequestingCancellationId] = useState<string | null>(null);
   const sessionVersionRef = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    setFavoriteProducts([]);
+    setFavoriteCatalogError(null);
+    if (favoritesLoading || favoritesLoadError || favoriteIds.size === 0) {
+      setFavoriteCatalogLoading(false);
+      return () => { active = false; };
+    }
+    const loadFavoriteProducts = async () => {
+      setFavoriteCatalogLoading(true);
+      try {
+        const response = await apiFetch("products?limit=500&offset=0", { cache: "no-store" });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !Array.isArray(payload?.data)) {
+          throw new Error(payload?.message || "Unable to load product details for your favorites.");
+        }
+        const products = unwrapApiData<Product[]>(payload, []);
+        if (active) setFavoriteProducts(products.filter(product => favoriteIds.has(product.id)));
+      } catch (loadError) {
+        if (active) setFavoriteCatalogError(loadError instanceof Error ? loadError.message : "Unable to load your favorite products.");
+      } finally {
+        if (active) setFavoriteCatalogLoading(false);
+      }
+    };
+    void loadFavoriteProducts();
+    return () => { active = false; };
+  }, [favoriteIds, favoritesLoading, favoritesLoadError]);
 
   useEffect(() => {
     let active = true;
@@ -160,6 +208,7 @@ export default function CustomerProfilePage() {
     setRemovingAddressId(null);
     setAddressForm(emptyAddress);
     setOpenReceiptId(null);
+    setRequestingCancellationId(null);
     const loadProfile = async () => {
       setLoading(true);
       setError(null);
@@ -195,10 +244,59 @@ export default function CustomerProfilePage() {
     };
   }, [user?.uid, getCustomerIdToken]);
 
+  useEffect(() => {
+    if (!user?.uid) return;
+    let active = true;
+    const refreshOrders = async () => {
+      try {
+        const token = await getCustomerIdToken();
+        if (!token) return;
+        const orderData = await requestAccountData<OrderReceipt[]>("customers/me/orders", token);
+        if (active) setOrders(orderData || []);
+      } catch {
+        // Keep the last confirmed account data visible during temporary network errors.
+      }
+    };
+    const timer = window.setInterval(() => void refreshOrders(), 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [user?.uid, getCustomerIdToken]);
+
   const updateAddressField =
     (field: keyof AddressForm) =>
     (event: React.ChangeEvent<HTMLInputElement>) =>
       setAddressForm(current => ({ ...current, [field]: event.target.value }));
+
+  const requestOrderCancellation = async (order: OrderReceipt) => {
+    if (requestingCancellationId) return;
+    const whatsappWindow = window.open("about:blank", "_blank");
+    if (whatsappWindow) whatsappWindow.opener = null;
+    setRequestingCancellationId(order.id);
+    try {
+      const token = await getCustomerIdToken();
+      if (!token) throw new Error("Your sign-in has expired. Please sign in again.");
+      const result = await requestAccountData<{ orderId: string; cancellationStatus: "requested"; cancellationRequestedAt: string | null; message: string }>(
+        `customers/me/orders/${encodeURIComponent(order.id)}/cancellation-request`,
+        token,
+        { method: "POST" }
+      );
+      setOrders(current => current.map(item => item.id === order.id
+        ? { ...item, cancellationStatus: result.cancellationStatus, cancellationRequestedAt: result.cancellationRequestedAt }
+        : item));
+      const recipient = "918910558446";
+      const whatsappUrl = `https://wa.me/${recipient}?text=${encodeURIComponent(result.message)}`;
+      if (whatsappWindow) whatsappWindow.location.href = whatsappUrl;
+      else window.location.assign(whatsappUrl);
+      toast.success("Cancellation request saved", { description: "Review the message in WhatsApp and tap Send. RedVeg will update your order after reviewing it." });
+    } catch (requestError) {
+      whatsappWindow?.close();
+      toast.error("Could not request cancellation", { description: requestError instanceof Error ? requestError.message : "Please try again." });
+    } finally {
+      setRequestingCancellationId(null);
+    }
+  };
 
   const saveAddress = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -550,6 +648,31 @@ export default function CustomerProfilePage() {
                       label="Phone"
                       value={profile?.phoneNumber || user?.phoneNumber}
                     />
+                    <div className="flex justify-end">
+                      {!editingPhone ? (
+                        <Button variant="outline" size="sm" onClick={() => { setPhoneDraft(profile?.phoneNumber || user?.phoneNumber || ""); setEditingPhone(true); }}>Update phone</Button>
+                      ) : (
+                        <div className="flex w-full flex-col gap-2 sm:flex-row">
+                          <Input type="tel" inputMode="tel" autoComplete="tel" maxLength={24} value={phoneDraft} onChange={event => setPhoneDraft(event.target.value)} aria-label="Profile phone number" placeholder="Phone number" />
+                          <Button disabled={savingPhone} onClick={async () => {
+                            const digits = phoneDraft.replace(/\D/g, "");
+                            if (digits.length < 10 || digits.length > 15) { toast.error("Enter a valid phone number with 10 to 15 digits."); return; }
+                            setSavingPhone(true);
+                            try {
+                              const token = await getCustomerIdToken();
+                              if (!token) throw new Error("Please sign in again to save your number.");
+                              await requestAccountData("customers/me/phone", token, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phoneNumber: phoneDraft.trim() }) });
+                              setProfile(current => current ? { ...current, phoneNumber: phoneDraft.trim() } : current);
+                              setEditingPhone(false);
+                              toast.success("Phone number updated");
+                            } catch (saveError) {
+                              toast.error(saveError instanceof Error ? saveError.message : "Could not update your phone number.");
+                            } finally { setSavingPhone(false); }
+                          }}>{savingPhone ? "Saving…" : "Save"}</Button>
+                          <Button variant="outline" onClick={() => setEditingPhone(false)} disabled={savingPhone}>Cancel</Button>
+                        </div>
+                      )}
+                    </div>
                   </dl>
                 </section>
               </div>
@@ -631,20 +754,51 @@ export default function CustomerProfilePage() {
                                   {formatMoney(order.totalAmount)}
                                 </p>
                               </div>
-                              <button
-                                type="button"
-                                aria-expanded={receiptOpen}
-                                onClick={() =>
-                                  setOpenReceiptId(
-                                    receiptOpen ? null : order.id
-                                  )
-                                }
-                                className="inline-flex items-center gap-2 rounded-full border border-[#DCCDC4] bg-white px-3.5 py-2 text-xs font-bold text-[#8B332E] transition-colors hover:bg-[#FFF8F3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B4232C]"
-                              >
-                                <ReceiptText className="size-4" />{" "}
-                                {receiptOpen ? "Hide receipt" : "View receipt"}
-                              </button>
+                              {order.receiptNumber ? (
+                                <button
+                                  type="button"
+                                  aria-expanded={receiptOpen}
+                                  onClick={() =>
+                                    setOpenReceiptId(
+                                      receiptOpen ? null : order.id
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-2 rounded-full border border-[#DCCDC4] bg-white px-3.5 py-2 text-xs font-bold text-[#8B332E] transition-colors hover:bg-[#FFF8F3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B4232C]"
+                                >
+                                  <ReceiptText className="size-4" />{" "}
+                                  {receiptOpen ? "Hide receipt" : "View receipt"}
+                                </button>
+                              ) : (
+                                <span className="text-right text-xs font-semibold text-[#74645D]">
+                                  Receipt appears after approval
+                                </span>
+                              )}
                             </div>
+                            {order.cancellationStatus === "requested" ? (
+                              <div className="mt-4 flex items-start gap-2 rounded-lg bg-[#FFF4E5] p-3 text-xs leading-5 text-[#76521D]">
+                                <MessageCircle className="mt-0.5 size-4 shrink-0" />
+                                <p>Your cancellation request is with RedVeg. The order stays active until the team approves it.</p>
+                              </div>
+                            ) : null}
+                            {order.cancellationStatus === "declined" ? (
+                              <div className="mt-4 rounded-lg bg-[#F8F0E4] p-3 text-xs leading-5 text-[#76521D]">
+                                <p>RedVeg declined the cancellation request{order.cancellationReviewNote ? `: ${order.cancellationReviewNote}` : "."}</p>
+                              </div>
+                            ) : null}
+                            {(["approved", "confirmed", "processing"].includes(order.status.toLowerCase()) && order.cancellationStatus !== "requested") ? (
+                              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                                <p className="max-w-md text-xs leading-5 text-[#74645D]">Request a cancellation. Your order is cancelled only after RedVeg reviews and approves it.</p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  disabled={requestingCancellationId !== null}
+                                  onClick={() => void requestOrderCancellation(order)}
+                                  className="h-10 shrink-0 rounded-full border-[#D9AAA5] bg-white px-4 text-xs font-black text-[#A82A2A] hover:bg-[#FFF5F3]"
+                                >
+                                  {requestingCancellationId === order.id ? <><Loader2 className="mr-2 size-4 animate-spin" /> Saving request…</> : <><MessageCircle className="mr-2 size-4" /> {order.cancellationStatus === "declined" ? "Request cancellation again" : "Request cancellation"}</>}
+                                </Button>
+                              </div>
+                            ) : null}
                           </div>
                           {receiptOpen && (
                             <div className="border-t border-[#E9DED5] bg-white p-4 sm:p-5">
@@ -656,8 +810,8 @@ export default function CustomerProfilePage() {
                                 </span>
                               </div>
                               <p className="mt-2 text-xs leading-5 text-[#74645D]">
-                                This itemized receipt is based on the order
-                                record saved at checkout.
+                                Issued {formatDate(order.receiptIssuedAt)} from
+                                the live order record saved for your account.
                               </p>
                               <div className="mt-4 divide-y divide-[#EEE7E1]">
                                 {order.items.map((item, index) => (
@@ -695,11 +849,11 @@ export default function CustomerProfilePage() {
                                   />
                                 )}
                                 <ReceiptRow
-                                  label="Delivery"
+                                  label={order.deliveryDistanceKm > 0 ? `Delivery · ${order.deliveryDistanceKm} km × ₹${order.deliveryRatePerKm}/km` : "Delivery"}
                                   value={
                                     order.deliveryFee > 0
                                       ? formatMoney(order.deliveryFee)
-                                      : "Free"
+                                      : formatMoney(0)
                                   }
                                 />
                                 <ReceiptRow
@@ -715,6 +869,11 @@ export default function CustomerProfilePage() {
                                   )}
                                 />
                               </div>
+                              {order.paymentMethod?.toLowerCase() === "online" && order.paymentStatus.toLowerCase() !== "paid" && (
+                                <p className="mt-4 rounded-xl bg-[#FBF7F2] px-4 py-3 text-center text-xs leading-5 text-[#74645D]">
+                                  Waiting for Razorpay to confirm the payment. Your order status updates automatically after the gateway confirms it.
+                                </p>
+                              )}
                               <div className="mt-4 flex items-start gap-2 rounded-lg bg-[#F3F7F0] p-3 text-xs leading-5 text-[#3E6244]">
                                 <ShieldCheck className="mt-0.5 size-4 shrink-0" />{" "}
                                 Order and receipt details are visible only to
@@ -726,6 +885,48 @@ export default function CustomerProfilePage() {
                       );
                     })}
                   </ul>
+                )}
+              </section>
+              <section
+                className="rounded-2xl bg-white p-5 shadow-[0_12px_32px_rgba(51,30,23,.06)] sm:p-6 lg:col-span-2"
+                aria-labelledby="favorites-heading"
+              >
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h2 id="favorites-heading" className="flex items-center gap-2 text-xl font-black tracking-tight text-[#2A1D19]">
+                      <Heart className="size-5 fill-[#B4232C] text-[#B4232C]" /> My favorites
+                    </h2>
+                    <p className="mt-1 text-sm text-[#74645D]">Products you saved from the storefront.</p>
+                  </div>
+                  <span className="rounded-full bg-[#FCE9E8] px-3 py-1 text-xs font-black text-[#A82A2A]">
+                    {favoriteIds.size} {favoriteIds.size === 1 ? "saved product" : "saved products"}
+                  </span>
+                </div>
+                {favoritesLoading || favoriteCatalogLoading ? (
+                  <div className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-[#FBF7F2] py-10 text-sm font-semibold text-[#66554D]" role="status">
+                    <Loader2 className="size-5 animate-spin text-[#B4232C]" /> Loading your favorites…
+                  </div>
+                ) : favoritesLoadError || favoriteCatalogError ? (
+                  <div role="alert" className="mt-5 rounded-xl bg-[#FFF3F1] px-4 py-5 text-sm font-semibold text-[#8E2926]">
+                    {favoritesLoadError || favoriteCatalogError}
+                  </div>
+                ) : favoriteIds.size === 0 ? (
+                  <div className="mt-5 rounded-xl bg-[#FBF7F2] px-4 py-8 text-center">
+                    <Heart className="mx-auto size-6 text-[#8B756B]" />
+                    <p className="mt-2 text-sm font-bold text-[#3B2C26]">No favorites yet</p>
+                    <p className="mt-1 text-xs leading-5 text-[#74645D]">Tap the heart on a product to save it here.</p>
+                    <Link href="/shop" className="mt-4 inline-flex items-center gap-2 text-sm font-black text-[#B4232C] hover:underline">
+                      Browse products <ArrowRight className="size-4" />
+                    </Link>
+                  </div>
+                ) : favoriteProducts.length === 0 ? (
+                  <p className="mt-5 rounded-xl bg-[#FBF7F2] px-4 py-6 text-center text-sm font-semibold text-[#74645D]">
+                    These saved products are no longer available in the live catalogue.
+                  </p>
+                ) : (
+                  <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {favoriteProducts.map(product => <ProductCard key={product.id} product={product} />)}
+                  </div>
                 )}
               </section>
             </div>

@@ -11,6 +11,7 @@ import {
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { apiFetch, normalizeCategorySlug, unwrapApiData } from "@/lib/api";
+import { SeoMetadata } from "@/components/storefront/SeoMetadata";
 
 const PAGE_SIZE = 8;
 
@@ -23,13 +24,17 @@ export default function ShopPage() {
       : "";
   const params = new URLSearchParams(queryString);
   const urlCategory = normalizeCategorySlug(params.get("category") || "all");
+  const isLegacyOffersLink = urlCategory === "offers";
   const search = params.get("q") ?? "";
+  const [searchInput, setSearchInput] = useState(search);
+  const [activeSearch, setActiveSearch] = useState(search);
   const [category, setCategory] = useState(urlCategory);
   const [sort, setSort] = useState("popular");
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -38,6 +43,34 @@ export default function ShopPage() {
   useEffect(() => {
     setCategory(urlCategory);
   }, [urlCategory]);
+
+  useEffect(() => {
+    setSearchInput(search);
+    setActiveSearch(search);
+  }, [search]);
+
+  useEffect(() => {
+    const syncFromHistory = () => {
+      const query = new URLSearchParams(window.location.search).get("q") || "";
+      setSearchInput(query);
+      setActiveSearch(query);
+    };
+    const handleSearchNavigation = (event: Event) => {
+      const query = (event as CustomEvent<string>).detail || "";
+      setSearchInput(query);
+      setActiveSearch(query);
+    };
+    window.addEventListener("popstate", syncFromHistory);
+    window.addEventListener("redveg:shop-search", handleSearchNavigation);
+    return () => {
+      window.removeEventListener("popstate", syncFromHistory);
+      window.removeEventListener("redveg:shop-search", handleSearchNavigation);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isLegacyOffersLink) setLocation("/offers");
+  }, [isLegacyOffersLink, setLocation]);
 
   const observer = useRef<IntersectionObserver | null>(null);
   const lastProductElementRef = useCallback(
@@ -58,6 +91,10 @@ export default function ShopPage() {
   useEffect(() => {
     let cancelled = false;
     const fetchShopData = async () => {
+      if (category === "offers") {
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         setError(null);
@@ -66,7 +103,7 @@ export default function ShopPage() {
         const searchParams = new URLSearchParams();
         if (category && category !== "all")
           searchParams.set("category", category);
-        if (search) searchParams.set("q", search);
+        if (activeSearch) searchParams.set("q", activeSearch);
         if (sort !== "popular") searchParams.set("sort", sort);
         // Load the full catalog for a selected category so the client can
         // enforce the filter even when an older backend ignores the slug.
@@ -79,7 +116,7 @@ export default function ShopPage() {
         const productPath = `products?${searchParams.toString()}`;
 
         const [categoriesResponse, productsResponse] = await Promise.all([
-          apiFetch("categories"),
+          apiFetch("categories", { cache: "no-store" }),
           apiFetch(productPath),
         ]);
 
@@ -123,7 +160,7 @@ export default function ShopPage() {
     return () => {
       cancelled = true;
     };
-  }, [category, search, sort]);
+  }, [category, activeSearch, sort]);
 
   // Fetch more data on scroll
   useEffect(() => {
@@ -136,7 +173,7 @@ export default function ShopPage() {
         const searchParams = new URLSearchParams();
         if (category && category !== "all")
           searchParams.set("category", category);
-        if (search) searchParams.set("q", search);
+        if (activeSearch) searchParams.set("q", activeSearch);
         if (sort !== "popular") searchParams.set("sort", sort);
         searchParams.set("limit", PAGE_SIZE.toString());
         searchParams.set("offset", ((page - 1) * PAGE_SIZE).toString());
@@ -168,11 +205,44 @@ export default function ShopPage() {
     return () => {
       cancelled = true;
     };
-  }, [page, category, search, sort]);
+  }, [page, category, activeSearch, sort]);
 
   const selectedCategory = categories.find(
     entry => (entry.id || normalizeCategorySlug(entry.name)) === category
   );
+  const categoryName = selectedCategory?.name || "Fresh cuts";
+  const categoryKeyword = category === "all"
+    ? "chicken, mutton, fish, hilsa (ilish), prawns and seafood"
+    : category === "crabs-seafood"
+      ? "crab and seafood"
+      : category === "fish"
+        ? "fresh fish and Bengali hilsa (ilish)"
+        : category === "hilsa"
+          ? "fresh hilsa (ilish) fish"
+          : category === "prawns"
+            ? "fresh prawns and shrimp"
+        : `fresh ${categoryName.toLowerCase()}`;
+  const shopTitle = category === "all"
+    ? "Fresh Chicken, Fish & Meat Online in Kolkata | RedVeg"
+    : `${categoryName} Online in Kolkata | RedVeg`;
+  const shopDescription = `Browse ${categoryKeyword} in RedVeg's live Kolkata catalogue, based near Dum Dum. Compare available cuts, sizes and prices, then check delivery to your area.`;
+  const canonicalPath = category === "all" ? "/shop" : `/shop?category=${encodeURIComponent(category)}`;
+  const collectionSchema = category !== "all" && products.length > 0 ? {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: `${categoryName} in Kolkata`,
+    description: shopDescription,
+    url: `https://redveg.in${canonicalPath}`,
+    mainEntity: {
+      "@type": "ItemList",
+      itemListElement: products.map((product, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        url: `https://redveg.in/product/${encodeURIComponent(product.slug)}`,
+        name: product.name,
+      })),
+    },
+  } : null;
 
   const categoryHref = (next: string) => {
     const nextParams = new URLSearchParams(params);
@@ -182,6 +252,8 @@ export default function ShopPage() {
   };
 
   const updateSearch = (next: string) => {
+    setActiveSearch(next);
+    setSearchInput(next);
     const nextParams = new URLSearchParams(params);
     if (next) nextParams.set("q", next);
     else nextParams.delete("q");
@@ -190,9 +262,24 @@ export default function ShopPage() {
     );
   };
 
+  if (isLegacyOffersLink)
+    return (
+      <StoreShell>
+        <div className="container py-16 text-center text-sm font-bold text-muted-foreground" role="status">
+          Opening current offers…
+        </div>
+      </StoreShell>
+    );
+
   if (loading && page === 1)
     return (
       <StoreShell>
+        <SeoMetadata
+          title={shopTitle}
+          description={shopDescription}
+          canonicalPath={canonicalPath}
+          noIndex={Boolean(activeSearch || sort !== "popular")}
+        />
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500" />
         </div>
@@ -201,6 +288,12 @@ export default function ShopPage() {
   if (error && page === 1)
     return (
       <StoreShell>
+        <SeoMetadata
+          title={shopTitle}
+          description={shopDescription}
+          canonicalPath={canonicalPath}
+          noIndex
+        />
         <div className="container py-12 text-center">
           <div className="rounded-[1.5rem] border border-dashed border-red-200 bg-red-50/50 px-6 py-16">
             <h3 className="font-black text-red-600">Failed to load catalog</h3>
@@ -218,6 +311,13 @@ export default function ShopPage() {
 
   return (
     <StoreShell>
+      <SeoMetadata
+        title={shopTitle}
+        description={shopDescription}
+        canonicalPath={canonicalPath}
+        noIndex={Boolean(activeSearch || sort !== "popular")}
+        structuredData={collectionSchema}
+      />
       <section className="border-b border-black/5 bg-[#F6F1EC]">
         <div className="container py-10 sm:py-14">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[#B4232C]">
@@ -259,16 +359,32 @@ export default function ShopPage() {
           })}
         </div>
         <div className="mt-5 grid gap-4 rounded-[1.35rem] bg-white p-3 shadow-[0_10px_30px_rgba(61,33,27,.055)] ring-1 ring-black/[0.045] md:grid-cols-[1fr_auto_auto]">
-          <label className="relative">
-            <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <form
+            role="search"
+            onSubmit={event => {
+              event.preventDefault();
+              updateSearch(searchInput.trim());
+            }}
+            className="relative"
+          >
             <input
-              value={search}
-              onChange={event => updateSearch(event.target.value)}
-              className="h-11 w-full rounded-xl bg-[#F6F1EC] pl-10 pr-4 text-sm outline-none ring-[#B4232C]/20 transition focus:ring-4"
-              placeholder="Search product names or keywords"
+              type="search"
+              value={searchInput}
+              onChange={event => setSearchInput(event.target.value)}
+              aria-label="Search the product catalogue"
+              className="h-11 w-full rounded-xl bg-[#F6F1EC] pl-10 pr-14 text-sm outline-none ring-[#B4232C]/20 transition focus:ring-4"
+              placeholder="Search products (chicken, ilish, prawn…)"
             />
-          </label>
-          <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-black/8 px-4 text-sm font-bold md:hidden">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <button
+              type="submit"
+              aria-label="Search products"
+              className="absolute right-1 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-lg bg-[#B4232C] text-white transition hover:bg-[#951D25] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B4232C] focus-visible:ring-offset-2"
+            >
+              <Search className="size-4" />
+            </button>
+          </form>
+          <button type="button" aria-expanded={showFilters} aria-controls="shop-category-filters" onClick={() => setShowFilters(open => !open)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-black/8 px-4 text-sm font-bold md:hidden">
             <Filter className="size-4" /> Filters
           </button>
           <div className="relative">
@@ -286,6 +402,24 @@ export default function ShopPage() {
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2" />
           </div>
         </div>
+        {showFilters && (
+          <div id="shop-category-filters" className="mt-3 rounded-2xl border border-black/8 bg-white p-4 md:hidden">
+            <p className="mb-3 text-xs font-black uppercase tracking-wide text-muted-foreground">Filter by category</p>
+            <div className="flex flex-wrap gap-2">
+              {[{ id: "all", name: "All" }, ...categories.map(entry => ({ id: normalizeCategorySlug(entry.id || entry.name), name: entry.name }))].map(entry => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => { setCategory(entry.id); setLocation(categoryHref(entry.id)); setShowFilters(false); }}
+                  aria-pressed={category === entry.id}
+                  className={`rounded-full px-3 py-2 text-xs font-bold ${category === entry.id ? "bg-[#B4232C] text-white" : "bg-[#F6F1EC] text-[#3D302C]"}`}
+                >
+                  {entry.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-8 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-black">

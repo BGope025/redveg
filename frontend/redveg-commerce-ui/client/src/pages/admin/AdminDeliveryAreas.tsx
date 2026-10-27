@@ -5,6 +5,7 @@ import { MapPinned, Loader2, RefreshCw } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { apiFetch } from '@/lib/api';
+import { formatISTDateTime } from '@/lib/dateTime';
 
 interface DeliveryLocation {
   pincode: string;
@@ -152,7 +153,6 @@ export default function AdminDeliveryAreas() {
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Type to search..."
               className="w-full px-4 py-3 rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-0 disabled:opacity-50"
-              disabled={loading}
             />
           </div>
           <div>
@@ -247,7 +247,7 @@ export default function AdminDeliveryAreas() {
                       {loc.state}
                     </td>
                     <td className="px-4 py-3 text-[0.68rem] text-[0.68rem] text-left text-[0.68rem] font-bold text-foreground">
-                      {loc.updatedAt ? new Date(loc.updatedAt).toLocaleString() : '-'}
+                      {loc.updatedAt ? formatISTDateTime(loc.updatedAt) : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <Button

@@ -20,10 +20,12 @@ export interface Category {
 export interface ProductVariant {
   id: string;
   label: string;
+  pieceSize?: "Small" | "Medium" | "Large" | null;
   price: number;
   mrp?: number;
   stock: number;
   available: boolean;
+  isAvailable?: boolean;
 }
 
 export interface Product {
@@ -35,8 +37,8 @@ export interface Product {
   shortDescription: string;
   image: string;
   badge?: string;
-  rating: number;
-  reviewCount: number;
+  rating: number | null;
+  reviewCount?: number | null;
   deliveryMinutes: number;
   featured?: boolean;
   bestseller?: boolean;
@@ -68,14 +70,28 @@ export interface Order {
   subtotal?: number;
   discountAmount?: number;
   deliveryFee?: number;
+  deliveryDistanceKm?: number;
+  deliveryRatePerKm?: number;
+  deliverySlotName?: string | null;
+  deliverySlotTime?: string | null;
   couponCode?: string | null;
+  receiptNumber?: string | null;
+  receiptIssuedAt?: string | null;
+  cancellationStatus?: "none" | "requested" | "approved" | "declined";
+  cancellationRequestedAt?: string | null;
+  cancellationMessage?: string | null;
+  cancellationReviewNote?: string | null;
   paymentStatus?: "Paid" | "Partial" | "Unpaid";
   receivedAmount?: number;
   dueAmount?: number;
   itemCount: number;
-  source: "Instagram" | "Google" | "Direct" | "WhatsApp";
+  source: "Instagram" | "Google" | "Direct" | "WhatsApp" | "Admin Manual";
+  paymentMethod?: string | null;
+  customerNotes?: string | null;
   status: OrderStatus;
   items: Array<{
+    productId?: string;
+    variantId?: string;
     name: string;
     variant: string;
     quantity: number;
@@ -94,6 +110,7 @@ export interface DeliveryLocation {
   accuracy?: number | null;
   accuracyWarning?: boolean;
   learnedPincode?: boolean;
+  source?: "geolocation" | "pincode";
 }
 // ──────────────────────────────────────────────────────────────────────────────
 // Campaign Types - Seasonal Header System

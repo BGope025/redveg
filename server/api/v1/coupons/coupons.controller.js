@@ -2,8 +2,11 @@ const { randomUUID } = require('crypto');
 const { getDatabaseConnection } = require('../../../config/turso');
 const { ensureCouponSchema } = require('./coupons.schema');
 const { generateCartSnapshot } = require('../../../utils/id-generator');
-const { CouponValidationError, roundMoney, calculateDeliveryFee, findApplicableCoupon } = require('../../../services/coupon.service');
+const { CouponValidationError, roundMoney, findApplicableCoupon } = require('../../../services/coupon.service');
+const { DeliveryQuoteError, quoteDeliveryFee } = require('../../../services/delivery-fee.service');
 const logger = require('../../../utils/logger');
+const { ensureCustomerAccountSchema } = require('../customers/customer-account.schema');
+const { ensureOrderCouponColumns } = require('../orders/orders.schema');
 
 class CouponInputError extends Error {}
 
@@ -148,10 +151,11 @@ async function getActiveCoupons(req, res) {
                    usage_limit, usage_count, is_active, created_at, updated_at
             FROM coupons
             WHERE is_active = 1
-              AND datetime(starts_at) <= datetime('now')
-              AND datetime(ends_at) > datetime('now')
+              AND julianday(starts_at) <= julianday('now')
+              AND julianday(ends_at) > julianday('now')
               AND (usage_limit IS NULL OR usage_count < usage_limit)
             ORDER BY code COLLATE NOCASE`,
+      args: [],
     });
     return res.status(200).json({ success: true, count: result.rows.length, data: result.rows.map(toCoupon) });
   } catch (error) {
@@ -161,7 +165,7 @@ async function getActiveCoupons(req, res) {
 
 async function validateCoupon(req, res) {
   try {
-    const { code, cartItems } = req.body || {};
+    const { code, cartItems, destination } = req.body || {};
     if (!Array.isArray(cartItems) || !cartItems.length || cartItems.some((item) =>
       !item || typeof item.productId !== 'string' || !item.productId ||
       typeof item.variantId !== 'string' || !item.variantId ||
@@ -175,8 +179,28 @@ async function validateCoupon(req, res) {
       throw new CouponValidationError('One or more basket items are no longer available. Refresh your basket and try again.');
     });
     const subtotalAmount = roundMoney(cartSnapshot.reduce((sum, item) => sum + item.price * item.quantity, 0));
-    const coupon = await findApplicableCoupon(db, code, subtotalAmount);
-    const deliveryFee = calculateDeliveryFee(subtotalAmount);
+    const customerId = req.firebaseCustomer?.uid || req.customer?.customerId || null;
+    const customerKey = req.firebaseCustomer?.uid
+      ? `firebase:${req.firebaseCustomer.uid}`
+      : req.customer?.customerId
+        ? `customer:${req.customer.customerId}`
+        : null;
+    const ordersDb = customerId ? await getDatabaseConnection('orders') : null;
+    if (ordersDb) {
+      await ensureCustomerAccountSchema(ordersDb);
+      await ensureOrderCouponColumns(ordersDb);
+    }
+    const coupon = await findApplicableCoupon(db, code, subtotalAmount, customerId
+      ? { id: customerId, key: customerKey, ordersDb }
+      : null);
+    // Coupon preview is available from the basket before a full address exists.
+    // Defer delivery pricing to checkout, where a verified street address and
+    // driving route are required. Never preview a fee from a postcode centroid.
+    const hasFullAddress = String(destination?.addressLine || '').trim().length >= 6;
+    const deliveryQuote = hasFullAddress
+      ? await quoteDeliveryFee(destination || {}, { subtotalAmount, requireExactAddress: true })
+      : null;
+    const deliveryFee = deliveryQuote?.deliveryFee || 0;
     const totalAmount = roundMoney(subtotalAmount - coupon.discountAmount + deliveryFee);
 
     return res.status(200).json({
@@ -192,11 +216,17 @@ async function validateCoupon(req, res) {
         subtotalAmount,
         discountAmount: coupon.discountAmount,
         deliveryFee,
+        deliveryDistanceKm: deliveryQuote?.distanceKm ?? null,
+        deliveryRatePerKm: deliveryQuote?.ratePerKm ?? null,
+        distanceMethod: deliveryQuote?.distanceMethod ?? 'deferred_to_checkout',
         totalAmount,
       },
     });
   } catch (error) {
     if (error instanceof CouponValidationError) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    if (error instanceof DeliveryQuoteError) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
     logger.error('Error validating coupon:', error);
@@ -266,3 +296,4 @@ async function deactivateCoupon(req, res) {
 }
 
 module.exports = { getCoupons, getActiveCoupons, validateCoupon, createCoupon, updateCoupon, deactivateCoupon };
+

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /cart
+Disallow: /checkout
+Disallow: /login
+Disallow: /profile
+
+Sitemap: https://redveg.in/api/v1/seo/sitemap.xml

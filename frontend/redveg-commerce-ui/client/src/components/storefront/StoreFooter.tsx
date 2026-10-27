@@ -95,8 +95,25 @@ export function StoreFooter() {
             © 2026 REDVEG FOOD VENTURES PRIVATE LIMITED COMPANY. All rights
             reserved.
           </span>
-          <span className="text-center">Developed by AIZEN TECHNOLOGIES</span>
-          <span>Privacy · Terms · Refund policy</span>
+          <a
+            href="https://instagram.com/a1zen.technologies?rpxt=cmV6eGE3c3NkeW96&utm_source=qr"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center transition-colors hover:text-white focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+            aria-label="AIZEN TECHNOLOGIES on Instagram (opens in a new tab)"
+          >
+            Developed by AIZEN TECHNOLOGIES
+          </a>
+          <nav aria-label="Legal information" className="flex flex-wrap items-center justify-center gap-3">
+            <Link href="/privacy-policy" className="transition-colors hover:text-white focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">Privacy Policy</Link>
+            <Link
+              href="/terms"
+              className="inline-flex min-h-10 items-center rounded-full border border-[#72B556] bg-[#72B556] px-4 font-bold text-[#17110f] shadow-[0_6px_16px_rgba(0,0,0,.22)] transition-colors hover:border-[#8aca6d] hover:bg-[#8aca6d] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+            >
+              Terms &amp; Conditions
+            </Link>
+            <Link href="/return-policy" className="transition-colors hover:text-white focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">Returns &amp; refunds</Link>
+          </nav>
         </div>
       </div>
     </footer>

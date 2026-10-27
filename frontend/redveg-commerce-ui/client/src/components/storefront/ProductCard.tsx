@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/contexts/CartContext";
 import { brandedCatalogImage } from "@/lib/catalogImages";
+import { ProductCardActions } from "@/components/storefront/ProductCardActions";
 import type { Product } from "@/types/commerce";
 import { Clock3, Plus, Star } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -23,18 +24,27 @@ export function ProductCard({ product }: { product: Product }) {
     product.variants?.find(entry => entry.id === variantId) ??
     product.variants?.[0];
   const stockRemaining = Number(variant?.stock ?? 0);
+  const { addItem, items: cartItems } = useCart();
+  const alreadyInCart = cartItems.find(item => item.productId === product.id && item.variantId === variant?.id)?.quantity || 0;
+  const canAddMore = Boolean(variant?.available && stockRemaining - alreadyInCart > 0);
   const isLowStock = Boolean(
     variant?.available && stockRemaining > 0 && stockRemaining <= 9
   );
-  const { addItem } = useCart();
 
   useEffect(() => {
     setImageSrc(product.image || brandedFallback || "");
   }, [brandedFallback, product.id, product.image]);
 
   const add = () => {
-    if (!variant || !variant.available) return;
-    addItem(product.id, variant.id);
+    if (!variant || !canAddMore) {
+      toast.error("This pack size has reached its available stock");
+      return;
+    }
+    const addedQuantity = addItem(product.id, variant.id);
+    if (!addedQuantity) {
+      toast.error("This pack size has reached its available stock");
+      return;
+    }
     toast.success(`${product.name} added`, {
       description: `${variant.label} · ₹${variant.price}`,
     });
@@ -43,10 +53,8 @@ export function ProductCard({ product }: { product: Product }) {
 
   return (
     <article className="group overflow-hidden rounded-[1.4rem] bg-white shadow-[0_14px_40px_rgba(75,41,33,0.08)] ring-1 ring-black/[0.045] transition duration-200 hover:-translate-y-1 hover:shadow-[0_20px_50px_rgba(75,41,33,0.13)]">
-      <Link
-        href={`/product/${product.slug}`}
-        className="relative block aspect-[4/3] overflow-hidden bg-[#F5EFE9]"
-      >
+      <div className="relative aspect-[4/3] overflow-hidden bg-[#F5EFE9]">
+        <Link href={`/product/${product.slug}`} className="absolute inset-0 block">
         {imageSrc ? (
           <img
             src={imageSrc}
@@ -87,18 +95,18 @@ export function ProductCard({ product }: { product: Product }) {
             Quick add
           </button>
         ) : null}
-      </Link>
-      <div className="p-4 sm:p-5">
+        </Link>
+        <ProductCardActions product={product} />
         {product.rating != null && Number.isFinite(Number(product.rating)) && (
-          <div className="flex items-center gap-1 text-xs font-bold text-[#267345]">
-            <Star className="size-3.5 fill-current" /> {product.rating}
-            {product.reviewCount != null && (
-              <span className="font-medium text-muted-foreground">
-                ({product.reviewCount})
-              </span>
+          <div className="absolute bottom-3 left-3 z-10 inline-flex items-center gap-1.5 rounded-lg bg-white/95 px-2.5 py-1.5 text-xs font-black text-[#267345] shadow-sm ring-1 ring-black/5">
+            <Star className="size-3.5 fill-current" /> {Number(product.rating).toFixed(1)}
+            {product.reviewCount != null && Number.isFinite(Number(product.reviewCount)) && Number(product.reviewCount) > 0 && (
+              <span className="font-bold text-[#71645F]">· {Number(product.reviewCount).toLocaleString("en-IN")}</span>
             )}
           </div>
         )}
+      </div>
+      <div className="p-4 sm:p-5">
         <Link
           href={`/product/${product.slug}`}
           className="mt-2 block min-h-12 text-base font-black leading-6 tracking-[-0.015em] text-[#261B18] transition-colors hover:text-[#B4232C] sm:text-lg"
@@ -118,10 +126,11 @@ export function ProductCard({ product }: { product: Product }) {
                 <button
                   key={entry.id}
                   onClick={() => setVariantId(entry.id)}
-                  disabled={!entry.available}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${entry.id === variant?.id ? "border-[#B4232C] bg-[#FCE9E8] text-[#B4232C]" : "border-[#E7DDD8] bg-white text-[#6E625E] hover:border-[#B4232C]/50"} disabled:cursor-not-allowed disabled:opacity-35`}
+                    aria-pressed={entry.id === variant?.id}
+                    className={`rounded-xl border px-3 py-2 text-left text-xs font-bold transition ${entry.id === variant?.id ? "border-[#B4232C] bg-[#FCE9E8] text-[#B4232C]" : "border-[#E7DDD8] bg-white text-[#6E625E] hover:border-[#B4232C]/50"} ${entry.available ? "" : "border-dashed text-[#8F1D25]"}`}
                 >
-                  {entry.label}
+                    <span className="block">{entry.label}</span>
+                    {!entry.available && <span className="mt-1 block text-[0.62rem] font-black">Stock Unavailable</span>}
                 </button>
               ))}
             </div>
@@ -129,6 +138,9 @@ export function ProductCard({ product }: { product: Product }) {
               <p className="mt-2 text-xs font-black text-[#B4232C]">
                 Only {stockRemaining} left in stock — order soon
               </p>
+            )}
+            {variant && !variant.available && (
+              <p className="mt-2 text-xs font-black text-[#8F1D25]">Stock Unavailable</p>
             )}
 
             <div className="mt-5 flex items-end justify-between gap-3">
@@ -147,10 +159,10 @@ export function ProductCard({ product }: { product: Product }) {
               </div>
               <Button
                 onClick={add}
-                disabled={!variant?.available}
+                disabled={!canAddMore}
                 className="h-10 rounded-full bg-[#B4232C] px-4 font-black text-white shadow-[0_8px_18px_rgba(180,35,44,0.2)] hover:bg-[#921B22]"
               >
-                <Plus className="size-4" /> Add
+                <Plus className="size-4" /> {canAddMore ? "Add" : "Stock Unavailable"}
               </Button>
             </div>
           </>
@@ -191,30 +203,31 @@ export function ProductCard({ product }: { product: Product }) {
             {product.variants?.length ? (
               <>
                 <p className="mt-5 text-sm font-bold text-muted-foreground">
-                  Choose a pack size
+                  {product.variants?.some(entry => entry.pieceSize) ? "Choose a pack and piece size" : "Choose a pack size"}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {product.variants.map(entry => (
                     <button
                       key={entry.id}
                       type="button"
-                      onClick={() => setVariantId(entry.id)}
-                      disabled={!entry.available}
-                      className={`rounded-full border px-4 py-2 text-sm font-bold ${entry.id === variant?.id ? "border-[#B4232C] bg-[#FCE9E8] text-[#B4232C]" : "border-[#E7DDD8]"} disabled:cursor-not-allowed disabled:opacity-40`}
+                  onClick={() => setVariantId(entry.id)}
+                        aria-pressed={entry.id === variant?.id}
+                        className={`rounded-xl border px-4 py-2 text-left text-sm font-bold ${entry.id === variant?.id ? "border-[#B4232C] bg-[#FCE9E8] text-[#B4232C]" : "border-[#E7DDD8]"} ${entry.available ? "" : "border-dashed text-[#8F1D25]"}`}
                     >
-                      {entry.label} · ₹{entry.price}
+                        <span className="block">{entry.label}</span>
+                        <span className="mt-1 block text-xs">{entry.available ? `₹${entry.price}` : "Stock Unavailable"}</span>
                     </button>
                   ))}
                 </div>
                 <Button
                   type="button"
                   onClick={add}
-                  disabled={!variant?.available}
+                  disabled={!canAddMore}
                   className="mt-6 h-12 w-full rounded-full bg-[#B4232C] font-black text-white hover:bg-[#921B22]"
                 >
-                  {variant?.available
+                  {canAddMore
                     ? `Add to basket · ₹${variant.price}`
-                    : "Currently unavailable"}
+                    : "Stock limit reached"}
                 </Button>
               </>
             ) : (

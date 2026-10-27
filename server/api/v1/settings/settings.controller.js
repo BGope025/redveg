@@ -2,6 +2,30 @@ const { getDatabaseConnection } = require('../../../config/turso');
 const { generateNotFoundError, generateValidationError } = require('../../../utils/error-classes');
 const logger = require('../../../utils/logger');
 
+const settingsSchemaReady = new WeakMap();
+
+async function ensureSettingsSchema(db) {
+  if (!settingsSchemaReady.has(db)) {
+    const initialization = db.execute(`
+      CREATE TABLE IF NOT EXISTS settings (
+        type TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).catch((error) => {
+      settingsSchemaReady.delete(db);
+      throw error;
+    });
+    settingsSchemaReady.set(db, initialization);
+  }
+  await settingsSchemaReady.get(db);
+}
+
+const HEADER_THEME_IDS = new Set([
+  'default', 'diwali', 'durga-puja', 'holi', 'eid', 'christmas', 'onam', 'pongal', 'independence-day'
+]);
+
 /**
  * Get settings by type
  * @route GET /api/v1/settings/:type
@@ -16,6 +40,7 @@ const getSetting = async (req, res) => {
     }
 
     const db = await getDatabaseConnection('catalog');
+    await ensureSettingsSchema(db);
 
     // Get setting by type
     const result = await db.execute({
@@ -88,31 +113,23 @@ const upsertSetting = async (req, res) => {
       throw generateValidationError(`Settings type "${type}" is not updatable via this endpoint`);
     }
 
-    const db = await getDatabaseConnection('catalog');
+    if (type === 'header-theme' && (typeof value !== 'string' || !HEADER_THEME_IDS.has(value))) {
+      throw generateValidationError('Choose a valid storefront header theme.');
+    }
+    if (typeof value !== 'string' || value.length > 500) {
+      throw generateValidationError('Settings value must be a string of 500 characters or fewer.');
+    }
 
-    // Check if setting already exists
-    const existing = await db.execute({
-      sql: 'SELECT id FROM settings WHERE type = ? LIMIT 1',
-      args: [type]
+    const db = await getDatabaseConnection('catalog');
+    await ensureSettingsSchema(db);
+    await db.execute({
+      sql: `INSERT INTO settings (type, value, created_at, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(type) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
+      args: [type, value]
     });
 
-    if (existing.rows.length > 0) {
-      // Update existing setting
-      await db.execute({
-        sql: 'UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE type = ?',
-        args: [value, type]
-      });
-      
-      logger.info(`Setting updated: ${type}`);
-    } else {
-      // Create new setting
-      await db.execute({
-        sql: 'INSERT INTO settings (type, value, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-        args: [type, value]
-      });
-      
-      logger.info(`Setting created: ${type}`);
-    }
+    logger.info(`Setting saved: ${type}`);
 
     res.status(200).json({
       success: true,
@@ -158,6 +175,7 @@ const deleteSetting = async (req, res) => {
     }
 
     const db = await getDatabaseConnection('catalog');
+    await ensureSettingsSchema(db);
 
     // Delete setting
     await db.execute({

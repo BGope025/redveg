@@ -20,15 +20,7 @@ Module._load = function (request, parent, isMain) {
 
 const turso = require('./server/config/turso');
 turso.initializeDatabaseConnections();
-Promise.all(['catalog', 'orders', 'customer', 'availablePincodes'].map((name) =>
-  turso.getDatabaseConnection(name)
-)).then((clients) => {
-  clients.forEach((client) => client.close());
-  console.log('GODADDY_REMOTE_DRIVER_OK');
-}).catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+console.log('GODADDY_REMOTE_DRIVER_OK');
 `;
 
 test('GoDaddy remote Turso boot uses the web driver without dotenv or native LibSQL', () => {

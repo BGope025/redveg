@@ -113,6 +113,8 @@ const getLocationByPincode = async (req, res) => {
         area: location.area || '',
         city: location.city || '',
         state: location.state || '',
+        latitude: location.latitude == null ? null : Number(location.latitude),
+        longitude: location.longitude == null ? null : Number(location.longitude),
         isServiceable: location.is_serviceable === 1
       }
     });
@@ -147,18 +149,25 @@ const searchLocations = async (req, res) => {
   try {
     const { q, limit, offset, serviceableOnly } = req.query;
 
-    if (!q) {
+    const searchTerm = String(q || '').trim();
+    if (!searchTerm) {
       throw generateValidationError('Search query is required');
     }
 
-    let sql = `
-      SELECT * FROM available_pincodes
-      WHERE (area LIKE ?
-         OR city LIKE ?
-         OR state LIKE ?
-         OR pincode LIKE ?)
-    `;
-    const args = [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`];
+    // Customers often paste a complete address such as "Dumdum, Kolkata ·
+    // 700065". Matching that whole string against the pincode column can
+    // never find a row, even when the pincode is present in our database.
+    // Give an embedded six-digit pincode an exact lookup while retaining the
+    // existing area/city/state text search as a fallback.
+    const embeddedPincode = searchTerm.match(/(?:^|\D)(\d{6})(?:\D|$)/)?.[1];
+    let sql = `SELECT * FROM available_pincodes WHERE (`;
+    const args = [];
+    if (embeddedPincode) {
+      sql += 'pincode = ? OR ';
+      args.push(embeddedPincode);
+    }
+    sql += `area LIKE ? OR city LIKE ? OR state LIKE ? OR pincode LIKE ?)`;
+    args.push(`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`);
 
     if (serviceableOnly === 'true') {
       sql += ' AND is_serviceable = 1';
@@ -184,6 +193,8 @@ const searchLocations = async (req, res) => {
       area: location.area || '',
       city: location.city || '',
       state: location.state || '',
+      latitude: location.latitude == null ? null : Number(location.latitude),
+      longitude: location.longitude == null ? null : Number(location.longitude),
       isServiceable: location.is_serviceable === 1
     }));
 
@@ -369,8 +380,11 @@ const reverseGeocode = async (req, res) => {
         city: location.city || '',
         state: location.state || '',
         isServiceable: location.is_serviceable === 1,
-        latitude: location.latitude,
-        longitude: location.longitude,
+        // Return the precise browser location for this quote. The database
+        // row's coordinates are a pincode reference point and can be miles
+        // from the customer's actual position.
+        latitude,
+        longitude,
         accuracy: accuracy ?? null,
         accuracyWarning: hasLowAccuracy,
         learnedPincode

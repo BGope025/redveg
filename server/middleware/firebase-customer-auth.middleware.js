@@ -107,4 +107,17 @@ async function authenticateFirebaseCustomer(req, res, next) {
   }
 }
 
-module.exports = { authenticateFirebaseCustomer, verifyFirebaseIdToken };
+async function optionalFirebaseCustomer(req, _res, next) {
+  const authorization = req.get?.('authorization') || req.headers?.authorization || '';
+  const match = /^Bearer\s+(.+)$/i.exec(String(authorization));
+  if (!match) return next();
+  try {
+    req.firebaseCustomer = await verifyFirebaseIdToken(match[1]);
+  } catch {
+    // Coupon quotes remain available to guests and admin sessions. Checkout
+    // enforces the one-use rule again using its required verified customer.
+  }
+  return next();
+}
+
+module.exports = { authenticateFirebaseCustomer, optionalFirebaseCustomer, verifyFirebaseIdToken };

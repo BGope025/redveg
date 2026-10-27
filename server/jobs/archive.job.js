@@ -17,7 +17,8 @@ const runArchiveJob = async () => {
         SET is_archived = 1
         WHERE is_archived = 0
         AND datetime(created_at) < datetime('now', '-30 days')
-      `
+      `,
+      args: [],
     });
 
     const rowsAffected = result.rowsAffected || 0;

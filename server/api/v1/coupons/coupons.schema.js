@@ -26,6 +26,16 @@ async function ensureCouponSchema(db) {
       `);
       await db.execute('CREATE INDEX IF NOT EXISTS idx_coupons_active_dates ON coupons(is_active, starts_at, ends_at)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_coupons_created_at ON coupons(created_at DESC)');
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS coupon_redemptions (
+          coupon_id TEXT NOT NULL,
+          customer_key TEXT NOT NULL,
+          order_id TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (coupon_id, customer_key)
+        )
+      `);
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_coupon_redemptions_order ON coupon_redemptions(order_id)');
     })().catch((error) => {
       initializedDatabases.delete(db);
       throw error;

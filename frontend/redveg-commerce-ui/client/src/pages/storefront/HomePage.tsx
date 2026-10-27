@@ -2,12 +2,15 @@ import { ProductCard } from "@/components/storefront/ProductCard";
 import { GoogleReviewsCarousel } from "@/components/storefront/GoogleReviewsCarousel";
 import { StoreShell } from "@/components/storefront/StoreShell";
 import {
+  ArrowLeft,
   ArrowRight,
   Clock3,
   ShieldCheck,
   ThermometerSnowflake,
 } from "lucide-react";
 import { Link } from "wouter";
+import { CampaignWhatsAppButton } from "@/components/storefront/CampaignWhatsAppButton";
+import { isWhatsAppCampaignUrl } from "@/lib/campaignWhatsapp";
 import { useEffect, useState } from "react";
 import HeroSlideshow from "@/components/HeroSlideshow";
 import { useCampaign } from "@/contexts/CampaignContext";
@@ -37,7 +40,27 @@ export default function HomePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { activeCampaign } = useCampaign();
+  const { activeCampaigns } = useCampaign();
+  const collectionCampaigns = activeCampaigns.filter(campaign =>
+    campaign.placement === "collection_module" || campaign.placement === "both"
+  );
+  const [collectionCampaignIndex, setCollectionCampaignIndex] = useState(0);
+  const campaignIds = collectionCampaigns.map(campaign => campaign.id).join("|");
+  const activeCampaign = collectionCampaigns.length
+    ? collectionCampaigns[collectionCampaignIndex % collectionCampaigns.length]
+    : null;
+
+  useEffect(() => {
+    setCollectionCampaignIndex(0);
+  }, [campaignIds]);
+
+  useEffect(() => {
+    if (collectionCampaigns.length < 2) return;
+    const timer = window.setInterval(() => {
+      setCollectionCampaignIndex(index => (index + 1) % collectionCampaigns.length);
+    }, 6500);
+    return () => window.clearInterval(timer);
+  }, [collectionCampaigns.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +69,7 @@ export default function HomePage() {
         setLoading(true);
         setError(null);
         const [categoriesResponse, productsResponse] = await Promise.all([
-          apiFetch("categories"),
+          apiFetch("categories", { cache: "no-store" }),
           apiFetch("products?limit=8"),
         ]);
         if (!categoriesResponse.ok)
@@ -78,6 +101,27 @@ export default function HomePage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const refreshCategoryImages = async () => {
+      try {
+        const response = await apiFetch("categories", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (active) setCategories(unwrapApiData<Category[]>(payload, []));
+      } catch (refreshError) {
+        console.warn("Could not refresh category images:", refreshError);
+      }
+    };
+    const interval = window.setInterval(() => void refreshCategoryImages(), 30000);
+    window.addEventListener("focus", refreshCategoryImages);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshCategoryImages);
+    };
+  }, []);
+
   if (loading) {
     return (
       <StoreShell>
@@ -99,7 +143,8 @@ export default function HomePage() {
           activeCampaign.placement === "both") && (
           <section className="container pt-6 sm:pt-10">
             <div
-              className="group relative overflow-hidden rounded-[2rem] p-8 sm:p-12"
+              key={activeCampaign.id}
+              className="group relative overflow-hidden rounded-[2rem] p-8 sm:p-12 animate-in fade-in slide-in-from-right-3 duration-500"
               style={{ backgroundColor: activeCampaign.backgroundColor }}
             >
               {(activeCampaign.backgroundPattern ||
@@ -135,21 +180,23 @@ export default function HomePage() {
                   {activeCampaign.collectionSubtitle || activeCampaign.message}
                 </p>
                 {activeCampaign.ctaLabel && (
-                  <Link
-                    href={
-                      activeCampaign.collectionLink ||
-                      activeCampaign.destinationValue ||
-                      "/shop"
-                    }
-                    className="mt-4 inline-flex items-center gap-2 rounded-full px-6 py-3 font-bold shadow-sm transition-transform hover:-translate-y-0.5 active:scale-95"
-                    style={{
-                      backgroundColor: activeCampaign.buttonColor,
-                      color: activeCampaign.buttonTextColor,
-                    }}
-                  >
-                    {activeCampaign.ctaLabel}
-                    <ArrowRight className="size-4" />
-                  </Link>
+                  isWhatsAppCampaignUrl(activeCampaign.destinationValue) ? (
+                    <CampaignWhatsAppButton
+                      href={activeCampaign.destinationValue}
+                      className="mt-4 inline-flex items-center gap-2 rounded-full px-6 py-3 font-bold shadow-sm transition-transform hover:-translate-y-0.5 active:scale-95 disabled:cursor-wait disabled:opacity-60"
+                      style={{ backgroundColor: activeCampaign.buttonColor, color: activeCampaign.buttonTextColor }}
+                    >
+                      {activeCampaign.ctaLabel}<ArrowRight className="size-4" />
+                    </CampaignWhatsAppButton>
+                  ) : (
+                    <Link
+                      href={activeCampaign.collectionLink || activeCampaign.destinationValue || "/shop"}
+                      className="mt-4 inline-flex items-center gap-2 rounded-full px-6 py-3 font-bold shadow-sm transition-transform hover:-translate-y-0.5 active:scale-95"
+                      style={{ backgroundColor: activeCampaign.buttonColor, color: activeCampaign.buttonTextColor }}
+                    >
+                      {activeCampaign.ctaLabel}<ArrowRight className="size-4" />
+                    </Link>
+                  )
                 )}
               </div>
               {activeCampaign.accentColor && (
@@ -157,6 +204,29 @@ export default function HomePage() {
                   className="absolute -right-24 -top-24 size-64 rounded-full blur-3xl opacity-30"
                   style={{ backgroundColor: activeCampaign.accentColor }}
                 />
+              )}
+              {collectionCampaigns.length > 1 && (
+                <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 sm:bottom-6 sm:right-6">
+                  <span className="mr-1 text-xs font-bold text-white/80">
+                    {collectionCampaignIndex + 1} / {collectionCampaigns.length}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Previous offer"
+                    onClick={() => setCollectionCampaignIndex(index => (index - 1 + collectionCampaigns.length) % collectionCampaigns.length)}
+                    className="grid size-10 place-items-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
+                  >
+                    <ArrowLeft className="size-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next offer"
+                    onClick={() => setCollectionCampaignIndex(index => (index + 1) % collectionCampaigns.length)}
+                    className="grid size-10 place-items-center rounded-full bg-white/20 text-white transition hover:bg-white/30"
+                  >
+                    <ArrowRight className="size-5" />
+                  </button>
+                </div>
               )}
             </div>
           </section>
@@ -198,7 +268,7 @@ export default function HomePage() {
             No live categories are available yet.
           </div>
         ) : (
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-5 -mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:grid sm:grid-cols-3 sm:px-0 lg:grid-cols-6">
             {categories.map(category => {
               const slug = normalizeCategorySlug(category.id || category.name);
               const matchingProduct = products.find(
@@ -215,9 +285,9 @@ export default function HomePage() {
                   key={category.id}
                   href={`/shop?category=${encodeURIComponent(slug)}`}
                   aria-label={`Shop ${category.name}`}
-                  className="group overflow-hidden rounded-[1.35rem] bg-white shadow-[0_10px_30px_rgba(61,33,27,.06)] ring-1 ring-black/[0.05] transition hover:-translate-y-1 hover:shadow-[0_16px_35px_rgba(61,33,27,.12)]"
+                  className="group w-[42vw] max-w-[190px] shrink-0 snap-start overflow-hidden rounded-[1.1rem] bg-white shadow-[0_10px_30px_rgba(61,33,27,.06)] ring-1 ring-black/[0.05] transition hover:-translate-y-1 hover:shadow-[0_16px_35px_rgba(61,33,27,.12)] sm:w-auto sm:max-w-none sm:rounded-[1.35rem] sm:shrink"
                 >
-                  <div className="aspect-square overflow-hidden bg-[#F6F1EC]">
+                  <div className="aspect-[1.25] overflow-hidden bg-[#F6F1EC] sm:aspect-square">
                     {image ? (
                       <img
                         src={image}

@@ -11,18 +11,29 @@ const {
   deleteUser
 } = require('./users.controller');
 
-// User can only access their own profile unless they're admin
-router.get('/:userId', getUserProfile);
-router.put('/:userId', updateUserProfile);
+// Profile and user detail routes require an authenticated identity. Admins can
+// manage any user; non-admins may only access their own profile.
+router.use(protect);
+router.get('/:userId', (req, res, next) => {
+  if (req.user?.isAdminStaff) {
+    req.params.id = req.params.userId;
+    return authorize('admin')(req, res, () => getUserById(req, res, next));
+  }
+  return getUserProfile(req, res, next);
+});
+router.put('/:userId', (req, res, next) => {
+  if (req.user?.isAdminStaff) {
+    req.params.id = req.params.userId;
+    return authorize('admin')(req, res, () => updateUser(req, res, next));
+  }
+  return updateUserProfile(req, res, next);
+});
 
 // Admin only routes for user management
-router.use(protect);
 router.use(authorize('admin'));
 
 router.get('/', getAllUsers); // Get all users
 router.post('/', createUser); // Create new user
-router.get('/:id', getUserById); // Get specific user by ID
-router.put('/:id', updateUser); // Update user
 router.delete('/:id', deleteUser); // Delete user
 
 module.exports = router;

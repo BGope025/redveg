@@ -20,6 +20,12 @@ const adminDeliveryLocationsRoutes = require('./v1/admin/delivery-locations/deli
 const adminProductsRoutes = require('./v1/admin/products/products.routes');
 const adminVariantsRoutes = require('./v1/admin/variants/variants.routes');
 const couponsRoutes = require('./v1/coupons/coupons.routes');
+const deliveryFeesRoutes = require('./v1/delivery-fees/delivery-fees.routes');
+const deliverySlotsRoutes = require('./v1/delivery-slots/delivery-slots.routes');
+const seoRoutes = require('./v1/seo/seo.routes');
+const adminStaffRoutes = require('./v1/admin/staff/staff.routes');
+const adminCustomerCartsRoutes = require('./v1/admin/customer-carts/customer-carts.routes');
+const businessPolicyRoutes = require('./v1/business-policy/business-policy.routes');
 
 // Mount all routes
 router.use('/auth', authRoutes);
@@ -33,6 +39,9 @@ router.use('/users', usersRoutes);
 router.use('/variants', variantsRoutes);
 router.use('/customers', customersRoutes);
 router.use('/coupons', couponsRoutes);
+router.use('/delivery-fees', deliveryFeesRoutes);
+router.use('/delivery-slots', deliverySlotsRoutes);
+router.use('/seo', seoRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/campaigns', campaignsRoutes);
 router.use('/delivery-locations', deliveryLocationsRoutes);
@@ -40,6 +49,9 @@ router.use('/stats', statsRoutes);
 router.use('/admin/delivery-locations', adminDeliveryLocationsRoutes);
 router.use('/admin/products', adminProductsRoutes);
 router.use('/admin/variants', adminVariantsRoutes);
+router.use('/admin/staff', adminStaffRoutes);
+router.use('/admin/customer-carts', adminCustomerCartsRoutes);
+router.use('/business-policy', businessPolicyRoutes);
 
 // Health check endpoint (for Render.com sleep prevention)
 router.get('/health/ping', (req, res) => {

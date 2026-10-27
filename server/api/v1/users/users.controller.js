@@ -156,7 +156,8 @@ const getAllUsers = async (req, res) => {
     const db = await getDatabaseConnection('orders');
 
     const result = await db.execute({
-      sql: 'SELECT id, username, email, phone, role, created_at FROM users ORDER BY created_at DESC'
+      sql: 'SELECT id, username, email, phone, role, created_at FROM users ORDER BY created_at DESC',
+      args: [],
     });
 
     res.status(200).json({
@@ -227,7 +228,7 @@ const createUser = async (req, res) => {
     }
 
     // Validate role if provided
-    const validRoles = ['admin', 'customer'];
+    const validRoles = ['customer'];
     if (role && !validRoles.includes(role)) {
       throw generateValidationError(`Role must be one of: ${validRoles.join(', ')}`);
     }
@@ -315,6 +316,10 @@ const updateUser = async (req, res) => {
     const { id } = req.params;
     const { username, email, phone, password, role } = req.body;
 
+    if (req.user?.isAdminStaff && role !== undefined) {
+      throw generateValidationError('Employee roles are managed from Employees & access.');
+    }
+
     const db = await getDatabaseConnection('orders');
 
     // Check if user exists
@@ -329,7 +334,7 @@ const updateUser = async (req, res) => {
 
     // Validate role if provided
     if (role !== undefined) {
-      const validRoles = ['admin', 'customer'];
+      const validRoles = ['customer'];
       if (!validRoles.includes(role)) {
         throw generateValidationError(`Role must be one of: ${validRoles.join(', ')}`);
       }
@@ -458,7 +463,7 @@ const deleteUser = async (req, res) => {
 
     // Check if user exists
     const userResult = await db.execute({
-      sql: 'SELECT id FROM users WHERE id = ?',
+      sql: 'SELECT id, role FROM users WHERE id = ?',
       args: [id]
     });
 
@@ -466,10 +471,15 @@ const deleteUser = async (req, res) => {
       throw generateNotFoundError('User not found');
     }
 
+    if (String(userResult.rows[0].role).toLowerCase() === 'admin') {
+      return res.status(409).json({ success: false, message: 'Employee accounts cannot be deleted here. Deactivate them from Employees & access.' });
+    }
+
     // Prevent deleting the last admin user
     if (req.body.preventLastAdminCheck !== true) { // Allow bypass for internal use
       const adminCountResult = await db.execute({
-        sql: 'SELECT COUNT(*) as count FROM users WHERE role = \"admin\"'
+        sql: 'SELECT COUNT(*) as count FROM users WHERE role = \"admin\"',
+        args: [],
       });
 
       const adminCount = parseInt(adminCountResult.rows[0].count);

@@ -13,10 +13,10 @@ import {
 } from "lucide-react";
 import { assets } from "@/lib/assets";
 import { useLocation } from "@/contexts/LocationContext";
-import { useCampaign } from "@/contexts/CampaignContext";
-import type { Campaign } from "@/types/commerce";
 import { useGoogleBusinessDetails } from "@/components/storefront/GoogleReviewsCarousel";
 import { toast } from "sonner";
+import { CampaignWhatsAppButton } from "@/components/storefront/CampaignWhatsAppButton";
+import { isWhatsAppCampaignUrl } from "@/lib/campaignWhatsapp";
 
 interface Slide {
   id: number;
@@ -29,6 +29,7 @@ interface Slide {
   secondaryButtonHref?: string;
   image?: string;
   mobileImage?: string;
+  altText?: string;
   showSecondaryButton?: boolean;
 }
 
@@ -38,7 +39,7 @@ const slides: Slide[] = [
     eyebrow: "DELIVERING FRESH ACROSS KOLKATA",
     headline: "Fresh cuts.\nProperly done.",
     description:
-      "Premium chicken, mutton, fish and seafoodâ€”cleaned to your preference, hygienically packed and ready for your kitchen.",
+      "Premium chicken, mutton, fish and seafood, cleaned to your preference, hygienically packed and ready for your kitchen.",
     primaryButtonText: "Shop fresh cuts",
     primaryButtonHref: "/shop",
     secondaryButtonText: "Check delivery area",
@@ -73,9 +74,6 @@ const slides: Slide[] = [
       "Fresh fish, cleaned prawns and seafood prepared for easy cooking at home.",
     primaryButtonText: "Shop fish",
     primaryButtonHref: "/shop?category=fish",
-    secondaryButtonText: "Shop seafood",
-    secondaryButtonHref: "/shop?category=crabs-seafood", // Using crabs-seafood as per existing convention
-    showSecondaryButton: true,
     image: assets.prawns, // Using prawns image as it represents seafood well
   },
   {
@@ -87,52 +85,18 @@ const slides: Slide[] = [
     primaryButtonText: "Explore combos",
     primaryButtonHref: "/shop?category=combos",
     secondaryButtonText: "View offers",
-    secondaryButtonHref: "/shop?category=offers",
+    secondaryButtonHref: "/offers",
     showSecondaryButton: true,
     image: assets.hero,
   },
 ];
 
-function campaignHref(campaign: Campaign) {
-  if (campaign.destinationType === "category")
-    return `/shop?category=${encodeURIComponent(campaign.destinationValue)}`;
-  if (campaign.destinationType === "product")
-    return `/product/${encodeURIComponent(campaign.destinationValue)}`;
-  if (campaign.destinationType === "collection")
-    return campaign.collectionLink || campaign.destinationValue || "/shop";
-  return campaign.destinationValue || "/shop";
-}
-
-function campaignSlide(campaign: Campaign): Slide | null {
-  const image =
-    campaign.desktopImageUrl ||
-    campaign.mobileImageUrl ||
-    campaign.posterImageUrl;
-  if (!image) return null;
-  return {
-    id: -1,
-    eyebrow: campaign.label || "LIVE OFFER",
-    headline: campaign.name,
-    description:
-      campaign.message ||
-      "A new RedVeg offer is live now. Shop before it ends.",
-    primaryButtonText: campaign.ctaLabel || "Shop offer",
-    primaryButtonHref: campaignHref(campaign),
-    image,
-    mobileImage: campaign.mobileImageUrl,
-  };
-}
-
 export default function HeroSlideshow() {
   const { location } = useLocation();
-  const { activeCampaign } = useCampaign();
   const { details: googleBusiness } = useGoogleBusinessDetails();
-  const liveCampaignSlide = activeCampaign
-    ? campaignSlide(activeCampaign)
-    : null;
-  const heroSlides = liveCampaignSlide
-    ? [liveCampaignSlide, ...slides]
-    : slides;
+  // Keep the brand hero slideshow independent from promotions. Campaigns are
+  // rendered in their configured announcement bar / below-hero placements.
+  const heroSlides = slides;
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -141,10 +105,6 @@ export default function HeroSlideshow() {
 
   // Check for reduced motion preference
   const [reducedMotion, setReducedMotion] = useState(false);
-
-  useEffect(() => {
-    setCurrentSlide(0);
-  }, [activeCampaign?.id]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -171,7 +131,7 @@ export default function HeroSlideshow() {
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [currentSlide, isHovered, isFocused, reducedMotion]);
+  }, [currentSlide, isHovered, isFocused, reducedMotion, heroSlides.length]);
 
   // Reset timer when slide changes manually
   useEffect(() => {
@@ -181,7 +141,7 @@ export default function HeroSlideshow() {
         setCurrentSlide(prev => (prev + 1) % heroSlides.length);
       }, 4500);
     }
-  }, [currentSlide, isHovered, isFocused, reducedMotion]);
+  }, [currentSlide, isHovered, isFocused, reducedMotion, heroSlides.length]);
 
   const goToSlide = (index: number) => {
     setCurrentSlide(index);
@@ -211,7 +171,7 @@ export default function HeroSlideshow() {
       onFocus={handleFocusIn}
       onBlur={handleFocusOut}
       tabIndex={-1}
-      className="relative min-h-[520px] overflow-hidden rounded-[2rem] bg-[#17110f] text-white shadow-[0_24px_70px_rgba(46,24,20,.18)] sm:min-h-[560px] lg:min-h-[590px]"
+      className="relative min-h-[470px] overflow-hidden rounded-[1.5rem] bg-[#17110f] text-white shadow-[0_24px_70px_rgba(46,24,20,.18)] sm:min-h-[560px] sm:rounded-[2rem] lg:min-h-[590px]"
     >
       {/* Slide Image */}
       {currentSlideData.image && (
@@ -224,7 +184,7 @@ export default function HeroSlideshow() {
           )}
           <img
             src={currentSlideData.image}
-            alt={activeCampaign?.altText || `Slide ${currentSlide + 1}`}
+            alt={currentSlideData.altText || `Slide ${currentSlide + 1}`}
             className={`absolute inset-0 size-full object-cover object-center lg:object-right ${reducedMotion ? "transition-none" : "duration-500"}`}
           />
         </picture>
@@ -232,7 +192,7 @@ export default function HeroSlideshow() {
 
       {/* Dark Gradient Overlay */}
       <div
-        className={`absolute inset-0 bg-[linear-gradient(90deg,rgba(19,12,10,.96)_0%,rgba(19,12,10,.88)_34%,rgba(19,12,10,.35)_67%,rgba(19,12,10,.08)_100%)] ${reducedMotion ? "transition-none" : "duration-500"}`}
+        className={`absolute inset-0 bg-[linear-gradient(90deg,rgba(19,12,10,.96)_0%,rgba(19,12,10,.88)_42%,rgba(19,12,10,.35)_78%,rgba(19,12,10,.08)_100%)] sm:bg-[linear-gradient(90deg,rgba(19,12,10,.96)_0%,rgba(19,12,10,.88)_34%,rgba(19,12,10,.35)_67%,rgba(19,12,10,.08)_100%)] ${reducedMotion ? "transition-none" : "duration-500"}`}
       />
 
       {/* Radial Gradient Overlay */}
@@ -241,15 +201,15 @@ export default function HeroSlideshow() {
       />
 
       {/* Slide Content */}
-      <div className="relative z-10 flex min-h-[520px] max-w-2xl flex-col justify-center px-6 py-14 sm:min-h-[560px] sm:px-12 lg:min-h-[590px] lg:px-16">
+      <div className="relative z-10 flex min-h-[470px] max-w-2xl flex-col justify-center px-5 py-12 sm:min-h-[560px] sm:px-12 sm:py-14 lg:min-h-[590px] lg:px-16">
         {/* Eyebrow */}
-        <div className="inline-flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[0.15em] backdrop-blur">
+        <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-[0.62rem] font-black uppercase tracking-[0.1em] backdrop-blur sm:px-4 sm:text-xs sm:tracking-[0.15em]">
           <span className="size-2 rounded-full bg-[#72B556] shadow-[0_0_0_5px_rgba(114,181,86,.12)]" />
           {currentSlideData.eyebrow}
         </div>
 
         {/* Headline */}
-        <h1 className="mt-7 max-w-[640px] font-display text-[3.1rem] font-black leading-[0.96] tracking-[-0.055em] sm:text-6xl lg:text-[5rem]">
+        <h1 className="mt-5 max-w-[640px] font-display text-[2.55rem] font-black leading-[0.98] tracking-[-0.05em] sm:mt-7 sm:text-6xl lg:text-[5rem]">
           {currentSlideData.headline.split("\n").map((line, index) => (
             <>
               {line}
@@ -261,20 +221,30 @@ export default function HeroSlideshow() {
         </h1>
 
         {/* Description */}
-        <p className="mt-6 max-w-xl text-base leading-7 text-white/70 sm:text-lg">
+        <p className="mt-4 max-w-xl text-sm leading-6 text-white/75 sm:mt-6 sm:text-lg sm:leading-7">
           {currentSlideData.description}
         </p>
 
         {/* Buttons */}
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+        <div className="mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row">
           {/* Primary Button */}
-          <Link
-            href={currentSlideData.primaryButtonHref}
-            className={`inline-flex h-13 items-center justify-center gap-2 rounded-full bg-[#D62F37] px-7 text-sm font-black text-white shadow-[0_14px_35px_rgba(214,47,55,.28)] ${reducedMotion ? "transition-none" : "transition"} hover:bg-[#E53A42] active:scale-[.97]`}
-          >
-            {currentSlideData.primaryButtonText}
-            <ArrowRight className="size-4" />
-          </Link>
+          {isWhatsAppCampaignUrl(currentSlideData.primaryButtonHref) ? (
+            <CampaignWhatsAppButton
+              href={currentSlideData.primaryButtonHref}
+              className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#D62F37] px-6 text-sm font-black text-white shadow-[0_14px_35px_rgba(214,47,55,.28)] sm:h-13 sm:px-7 ${reducedMotion ? "transition-none" : "transition"} hover:bg-[#E53A42] active:scale-[.97] disabled:cursor-wait disabled:opacity-60`}
+            >
+              {currentSlideData.primaryButtonText}
+              <ArrowRight className="size-4" />
+            </CampaignWhatsAppButton>
+          ) : (
+            <Link
+              href={currentSlideData.primaryButtonHref}
+              className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#D62F37] px-6 text-sm font-black text-white shadow-[0_14px_35px_rgba(214,47,55,.28)] sm:h-13 sm:px-7 ${reducedMotion ? "transition-none" : "transition"} hover:bg-[#E53A42] active:scale-[.97]`}
+            >
+              {currentSlideData.primaryButtonText}
+              <ArrowRight className="size-4" />
+            </Link>
+          )}
 
           {/* Secondary Button (if applicable) */}
           {currentSlideData.showSecondaryButton &&
@@ -283,7 +253,7 @@ export default function HeroSlideshow() {
               <>
                 {/* Special handling for delivery area button to preserve existing behavior */}
                 {currentSlideData.secondaryButtonHref === "#" ? (
-                  <button
+      <button
                     className={`inline-flex h-13 items-center justify-center gap-2 rounded-full border border-white/20 bg-white/10 px-6 text-sm font-bold text-white backdrop-blur ${reducedMotion ? "transition-none" : "transition"} hover:bg-white/15`}
                     onClick={e => {
                       e.preventDefault();
@@ -294,7 +264,7 @@ export default function HeroSlideshow() {
                           : "Choose a delivery area first",
                         {
                           description: location
-                            ? `${location.area}, ${location.city} Â· ${location.pincode}`
+                            ? `${location.area}, ${location.city} · ${location.pincode}`
                             : "Use your current location to check availability.",
                         }
                       );
@@ -322,7 +292,7 @@ export default function HeroSlideshow() {
             {googleBusiness && (
               <span className="flex items-center gap-2">
                 <BadgeCheck className="size-4 text-[#86CC68]" />{" "}
-                {googleBusiness.rating.toFixed(1)} Google rating Â·{" "}
+                {googleBusiness.rating.toFixed(1)} Google rating ·{" "}
                 {googleBusiness.reviewCount.toLocaleString()} reviews
               </span>
             )}
@@ -343,7 +313,7 @@ export default function HeroSlideshow() {
             (currentSlide - 1 + heroSlides.length) % heroSlides.length;
           goToSlide(prev);
         }}
-        className={`absolute left-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-white/20 text-white/50 hover:bg-white/30 hover:text-white ${reducedMotion ? "transition-none" : "transition-colors"} disabled:opacity-50`}
+        className={`absolute bottom-3 left-3 z-20 grid size-9 place-items-center rounded-full bg-white/20 text-white/80 hover:bg-white/30 hover:text-white sm:bottom-auto sm:left-4 sm:top-1/2 sm:-translate-y-1/2 sm:size-10 ${reducedMotion ? "transition-none" : "transition-colors"} disabled:opacity-50`}
         aria-label="Previous slide"
       >
         <ArrowLeft className="size-5" />
@@ -353,7 +323,7 @@ export default function HeroSlideshow() {
           const next = (currentSlide + 1) % heroSlides.length;
           goToSlide(next);
         }}
-        className={`absolute right-4 top-1/2 -translate-y-1/2 z-20 h-10 w-10 rounded-full bg-white/20 text-white/50 hover:bg-white/30 hover:text-white ${reducedMotion ? "transition-none" : "transition-colors"} disabled:opacity-50`}
+        className={`absolute bottom-3 right-3 z-20 grid size-9 place-items-center rounded-full bg-white/20 text-white/80 hover:bg-white/30 hover:text-white sm:bottom-auto sm:right-4 sm:top-1/2 sm:-translate-y-1/2 sm:size-10 ${reducedMotion ? "transition-none" : "transition-colors"} disabled:opacity-50`}
         aria-label="Next slide"
       >
         <ArrowRight className="size-5" />
@@ -361,9 +331,9 @@ export default function HeroSlideshow() {
 
       {/* Pagination Dots */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-2">
-        {slides.map((slide, index) => (
+        {heroSlides.map((slide, index) => (
           <button
-            key={index}
+            key={`${slide.id}-${index}`}
             onClick={() => goToSlide(index)}
             className={`h-3 w-3 rounded-full bg-white/30 hover:bg-white/50 focus-visible:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ${reducedMotion ? "transition-none" : "transition-colors"} ${currentSlide === index ? "bg-white/60" : ""}`}
             aria-label={`Go to slide ${index + 1}`}

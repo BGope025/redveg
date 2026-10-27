@@ -10,11 +10,15 @@ import React, {
   useCallback,
 } from "react";
 import type { Campaign } from "@/types/commerce";
-import { campaignApi } from "@/lib/campaignApi";
+import { campaignApi, campaignsUpdatedEvent } from "@/lib/campaignApi";
+
+const campaignsUpdatedStorageKey = "redveg:campaigns-updated";
 
 interface CampaignContextValue {
   /** The currently active campaign resolved based on time/location/device */
   activeCampaign: Campaign | null;
+  /** All campaigns currently published within their configured time window */
+  activeCampaigns: Campaign[];
   /** All campaigns (for admin use) */
   allCampaigns: Campaign[];
   /** Loading state */
@@ -38,8 +42,14 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
   const [allCampaigns, setAllCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activeCampaigns = allCampaigns.filter(campaign => {
+    const now = Date.now();
+    return campaign.status === "published" &&
+      new Date(campaign.startsAt).getTime() <= now &&
+      new Date(campaign.endsAt).getTime() > now;
+  });
 
-  const fetchCampaigns = async () => {
+  const fetchCampaigns = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -52,7 +62,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const resolveActiveCampaign = async (options?: {
     now?: Date;
@@ -70,16 +80,32 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Initial load and refetch function
+  // Refresh on load, when the tab returns to the foreground, and immediately
+  // after a campaign mutation in this tab or another RedVeg tab.
   useEffect(() => {
-    fetchCampaigns();
-    const refreshTimer = window.setInterval(fetchCampaigns, 60_000);
-    return () => window.clearInterval(refreshTimer);
-  }, []);
+    void fetchCampaigns();
+    const refreshTimer = window.setInterval(() => void fetchCampaigns(), 60_000);
+    const handleCampaignChange = () => void fetchCampaigns();
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === campaignsUpdatedStorageKey) handleCampaignChange();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") handleCampaignChange();
+    };
+    window.addEventListener(campaignsUpdatedEvent, handleCampaignChange);
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", handleCampaignChange);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.removeEventListener(campaignsUpdatedEvent, handleCampaignChange);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleCampaignChange);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [fetchCampaigns]);
 
-  const refetch = useCallback(() => {
-    return fetchCampaigns();
-  }, []);
+  const refetch = fetchCampaigns;
 
   // Auto-resolve active campaign on load and when campaigns change
   useEffect(() => {
@@ -90,6 +116,7 @@ export function CampaignProvider({ children }: { children: React.ReactNode }) {
     <CampaignContext.Provider
       value={{
         activeCampaign,
+        activeCampaigns,
         allCampaigns,
         loading,
         error,

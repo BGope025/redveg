@@ -2,16 +2,7 @@ import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   type Auth,
-  onAuthStateChanged,
-  type User as FirebaseUser,
   GoogleAuthProvider,
-  signInWithPopup,
-  isSignInWithEmailLink,
-  sendSignInLinkToEmail,
-  PhoneAuthProvider,
-  signInWithPhoneNumber,
-  RecaptchaVerifier,
-  type ConfirmationResult
 } from 'firebase/auth';
 
 // Firebase configuration - these should be set in environment variables
@@ -51,5 +42,3 @@ if (isFirebaseConfigured) {
 
 export { auth, googleProvider };
 
-// Export types
-export type { FirebaseUser, ConfirmationResult };

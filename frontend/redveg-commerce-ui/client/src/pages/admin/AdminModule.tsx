@@ -1,7 +1,7 @@
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Button } from "@/components/ui/button";
 import { BarChart3, MapPinned, Settings2, Tags, Users } from "lucide-react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 
 const modules = {
   "/admin/coupons": {
@@ -79,8 +79,8 @@ export default function AdminModule() {
             </div>
           ))}
         </div>
-        <Button className="mt-8 h-11 rounded-full bg-[#17110F] px-5 font-black text-white">
-          Configure module
+        <Button asChild className="mt-8 h-11 rounded-full bg-[#17110F] px-5 font-black text-white">
+          <Link href="/admin/header-theme">Open header appearance settings</Link>
         </Button>
       </div>
     </AdminShell>

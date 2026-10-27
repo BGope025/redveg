@@ -1,7 +1,11 @@
 const { getDatabaseConnection } = require('../../../config/turso');
 const { generateNotFoundError, generateValidationError } = require('../../../utils/error-classes');
 const { generateVariantId } = require('../../../utils/id-generator');
+const { normalizePieceSize } = require('./variants.schema');
 const logger = require('../../../utils/logger');
+
+const isPlaceholderVariantName = (value) =>
+  typeof value !== 'string' || !value.trim() || /^new\s+(size|variant)$/i.test(value.trim()) || /^standard(?:\s.*)?$/i.test(value.trim());
 
 /**
  * Get all variants for a product
@@ -14,7 +18,7 @@ const getVariantsByProductId = async (req, res) => {
 
     // Check if product exists
     const productResult = await db.execute({
-      sql: 'SELECT id FROM products WHERE id = ? AND is_active = 1',
+      sql: 'SELECT id FROM products WHERE id = ?',
       args: [productId]
     });
 
@@ -52,7 +56,7 @@ const getAllAdminVariants = async (req, res) => {
   try {
     const db = await getDatabaseConnection('catalog');
     const result = await db.execute(`
-      SELECT TRIM(v.id) AS id, TRIM(v.product_id) AS product_id, v.sku, v.size, v.weight, v.price, v.stock_count, p.name AS product_name
+      SELECT TRIM(v.id) AS id, TRIM(v.product_id) AS product_id, v.sku, v.size, v.weight, v.piece_size, v.price, v.stock_count, v.is_available, p.name AS product_name
       FROM variants v
       LEFT JOIN products p ON p.id = v.product_id
       ORDER BY v.id ASC, v.sku ASC
@@ -111,26 +115,38 @@ const getVariantById = async (req, res) => {
 const createVariant = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { sku, size, weight, price, stock_count } = req.body;
+    const { sku, weight, price, stock_count, is_available } = req.body;
+    const requestedName = req.body?.variant_name ?? req.body?.size;
+    const variantName = typeof requestedName === 'string' ? requestedName.trim() : '';
+    const rawPieceSize = req.body?.piece_size ?? req.body?.pieceSize;
+    const pieceSize = normalizePieceSize(rawPieceSize);
 
     // Validate required fields
-    if (!sku || !size || !weight || price === undefined || stock_count === undefined) {
-      throw generateValidationError('SKU, size, weight, price, and stock_count are required');
+    if (!String(sku || '').trim() || !variantName || price == null || String(price).trim() === '' || stock_count == null || String(stock_count).trim() === '') {
+      throw generateValidationError('SKU, variant name, price, and stock_count are required');
+    }
+    if (isPlaceholderVariantName(variantName)) {
+      throw generateValidationError('Enter a real variant name; placeholder names are not allowed');
+    }
+    if (rawPieceSize != null && String(rawPieceSize).trim() !== '' && !pieceSize) {
+      throw generateValidationError('Piece size must be Small, Medium, or Large');
     }
 
     // Validate price and stock_count are non-negative
-    if (price < 0) {
-      throw generateValidationError('Price must be non-negative');
+    if (!Number.isFinite(Number(price)) || Number(price) < 0) {
+      throw generateValidationError('Price must be a valid non-negative number');
     }
-    if (stock_count < 0) {
-      throw generateValidationError('Stock count must be non-negative');
+    if (!Number.isInteger(Number(stock_count)) || Number(stock_count) < 0) {
+      throw generateValidationError('Stock count must be a valid non-negative number');
     }
 
     const db = await getDatabaseConnection('catalog');
 
     // Check if product exists
     const productResult = await db.execute({
-      sql: 'SELECT id FROM products WHERE id = ? AND is_active = 1',
+      // Admins must be able to add/edit inventory on a currently hidden
+      // product. Product visibility is controlled separately from stock.
+      sql: 'SELECT id FROM products WHERE id = ?',
       args: [productId]
     });
 
@@ -141,7 +157,7 @@ const createVariant = async (req, res) => {
     // Check if SKU already exists
     const skuResult = await db.execute({
       sql: 'SELECT id FROM variants WHERE sku = ?',
-      args: [sku]
+      args: [String(sku).trim()]
     });
 
     if (skuResult.rows.length > 0) {
@@ -152,26 +168,24 @@ const createVariant = async (req, res) => {
 
     await db.execute({
       sql: `
-        INSERT INTO variants (id, product_id, sku, size, weight, price, stock_count)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO variants (id, product_id, sku, size, weight, piece_size, price, stock_count, is_available)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-      args: [variantId, productId, sku, size, weight, price, stock_count]
+      args: [variantId, productId, String(sku).trim(), variantName, weight || null, pieceSize, Number(price), Number(stock_count), is_available === false || is_available === 0 ? 0 : 1]
     });
+
+    const savedVariant = await db.execute({
+      sql: 'SELECT id, product_id, sku, size, weight, piece_size, price, stock_count, is_available FROM variants WHERE id = ?',
+      args: [variantId]
+    });
+    if (!savedVariant.rows.length) throw new Error('Variant was not returned after saving');
 
     logger.info(`Variant created: ${variantId} for product: ${productId}`);
 
     res.status(201).json({
       success: true,
       message: 'Variant created successfully',
-      data: {
-        id: variantId,
-        product_id: productId,
-        sku,
-        size,
-        weight,
-        price,
-        stock_count
-      }
+      data: savedVariant.rows[0]
     });
   } catch (error) {
     if (error.type === 'validation-error') {
@@ -179,6 +193,10 @@ const createVariant = async (req, res) => {
         success: false,
         message: error.message
       });
+    }
+
+    if (error.type === 'not-found') {
+      return res.status(404).json({ success: false, message: error.message });
     }
 
     logger.error('Error creating variant:', error);
@@ -196,7 +214,9 @@ const createVariant = async (req, res) => {
 const updateVariant = async (req, res) => {
   try {
     const { id } = req.params;
-    const { sku, size, weight, price, stock_count } = req.body;
+    const { sku, weight, price, stock_count, is_available } = req.body;
+    const requestedName = req.body?.variant_name ?? req.body?.size;
+    const rawPieceSize = req.body?.piece_size ?? req.body?.pieceSize;
 
     const db = await getDatabaseConnection('catalog');
 
@@ -213,6 +233,14 @@ const updateVariant = async (req, res) => {
     // Build update query dynamically
     const updates = [];
     const args = [];
+    if (rawPieceSize !== undefined) {
+      const pieceSize = normalizePieceSize(rawPieceSize);
+      if (rawPieceSize != null && String(rawPieceSize).trim() !== '' && !pieceSize) {
+        throw generateValidationError('Piece size must be Small, Medium, or Large');
+      }
+      updates.push('piece_size = ?');
+      args.push(pieceSize);
+    }
 
     if (sku !== undefined) {
       // Check if SKU already exists (excluding current variant)
@@ -231,9 +259,12 @@ const updateVariant = async (req, res) => {
       args.push(sku);
     }
 
-    if (size !== undefined) {
+    if (requestedName !== undefined) {
+      if (isPlaceholderVariantName(requestedName)) {
+        throw generateValidationError('Enter a real variant name; placeholder names are not allowed');
+      }
       updates.push('size = ?');
-      args.push(size);
+      args.push(requestedName.trim());
     }
 
     if (weight !== undefined) {
@@ -242,19 +273,27 @@ const updateVariant = async (req, res) => {
     }
 
     if (price !== undefined) {
-      if (price < 0) {
-        throw generateValidationError('Price must be non-negative');
+      if (price == null || String(price).trim() === '' || !Number.isFinite(Number(price)) || Number(price) < 0) {
+        throw generateValidationError('Price must be a valid non-negative number');
       }
       updates.push('price = ?');
-      args.push(price);
+      args.push(Number(price));
     }
 
     if (stock_count !== undefined) {
-      if (stock_count < 0) {
+      if (stock_count == null || String(stock_count).trim() === '' || !Number.isInteger(Number(stock_count)) || Number(stock_count) < 0) {
         throw generateValidationError('Stock count must be non-negative');
       }
       updates.push('stock_count = ?');
-      args.push(stock_count);
+      args.push(Math.floor(Number(stock_count)));
+    }
+
+    if (is_available !== undefined) {
+      if (![true, false, 0, 1].includes(is_available)) {
+        throw generateValidationError('Availability must be true or false');
+      }
+      updates.push('is_available = ?');
+      args.push(is_available === true || is_available === 1 ? 1 : 0);
     }
 
     if (updates.length === 0) {
@@ -264,6 +303,8 @@ const updateVariant = async (req, res) => {
       });
     }
 
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+
     args.push(id);
 
     await db.execute({
@@ -271,11 +312,18 @@ const updateVariant = async (req, res) => {
       args
     });
 
+    const savedVariant = await db.execute({
+      sql: 'SELECT id, product_id, sku, size, weight, piece_size, price, stock_count, is_available FROM variants WHERE id = ?',
+      args: [id]
+    });
+    if (!savedVariant.rows.length) throw generateNotFoundError('Variant not found');
+
     logger.info(`Variant updated: ${id}`);
 
     res.status(200).json({
       success: true,
-      message: 'Variant updated successfully'
+      message: 'Variant updated successfully',
+      data: savedVariant.rows[0]
     });
   } catch (error) {
     if (error.type === 'validation-error') {
@@ -354,4 +402,5 @@ module.exports = {
   updateVariant,
   deleteVariant
 };
+
 

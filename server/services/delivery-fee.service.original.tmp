@@ -1,0 +1,276 @@
+const { getDatabaseConnection } = require('../config/turso');
+
+const DEFAULT_ORIGIN_ADDRESS = 'Prantik Sarani, Rabindra Nagar, Dum Dum Cantonment, P.O, Dum Dum, Kolkata, West Bengal 700065';
+const DEFAULT_ORIGIN_LATITUDE = 22.634926;
+const DEFAULT_ORIGIN_LONGITUDE = 88.4076512;
+const DEFAULT_RATE_PER_KM = 10;
+class DeliveryQuoteError extends Error {
+  constructor(message, statusCode = 422) { super(message); this.name = 'DeliveryQuoteError'; this.statusCode = statusCode; }
+}
+
+const BUSINESS_ORDER_DEFAULTS = {
+  delivery_radius_km: '5',
+  free_delivery_enabled: '0',
+};
+const readyDatabases = new WeakSet();
+
+function roundMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function validCoordinates(latitude, longitude) {
+  return Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude)) &&
+    Number(latitude) >= -90 && Number(latitude) <= 90 &&
+    Number(longitude) >= -180 && Number(longitude) <= 180;
+}
+
+async function ensureDeliveryPricingSchema(db) {
+  if (readyDatabases.has(db)) return;
+  await db.execute(`CREATE TABLE IF NOT EXISTS delivery_pricing_settings (
+    setting_key TEXT PRIMARY KEY,
+    setting_value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO delivery_pricing_settings (setting_key, setting_value)
+      VALUES ('origin_address', ?), ('rate_per_km', ?), ('origin_latitude', ?), ('origin_longitude', ?)`,
+    args: [DEFAULT_ORIGIN_ADDRESS, String(DEFAULT_RATE_PER_KM), String(DEFAULT_ORIGIN_LATITUDE), String(DEFAULT_ORIGIN_LONGITUDE)],
+  });
+  for (const [key, value] of Object.entries(BUSINESS_ORDER_DEFAULTS)) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO delivery_pricing_settings (setting_key, setting_value) VALUES (?, ?)`,
+      args: [key, value],
+    });
+  }
+  await db.execute({
+    sql: "DELETE FROM delivery_pricing_settings WHERE setting_key IN ('coupons_enabled', 'minimum_offer_order_amount', 'minimum_order_amount')",
+    args: [],
+  });
+  readyDatabases.add(db);
+}
+
+async function readPricingSettings(db) {
+  await ensureDeliveryPricingSchema(db);
+  const result = await db.execute({
+    sql: 'SELECT setting_key, setting_value FROM delivery_pricing_settings',
+    args: [],
+  });
+  return Object.fromEntries(result.rows.map(row => [row.setting_key, row.setting_value]));
+}
+
+async function geocodeAddress(address, expectedPincode = null) {
+  const apiKey = String(process.env.GEOAPIFY_API_KEY || '').trim();
+  if (!apiKey) return null;
+  const url = new URL('https://api.geoapify.com/v1/geocode/search');
+  url.searchParams.set('text', address);
+  url.searchParams.set('filter', 'countrycode:in');
+  url.searchParams.set('limit', expectedPincode ? '5' : '1');
+  url.searchParams.set('apiKey', apiKey);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Address lookup returned HTTP ${response.status}`);
+    const payload = await response.json();
+    const features = payload?.features || [];
+    const feature = expectedPincode
+      ? features.find(candidate => String(candidate.properties?.postcode || '').match(/\b\d{6}\b/)?.[0] === String(expectedPincode))
+      : features[0];
+    const coordinates = feature?.geometry?.coordinates;
+    if (!Array.isArray(coordinates) || !validCoordinates(coordinates[1], coordinates[0])) return null;
+    return { latitude: Number(coordinates[1]), longitude: Number(coordinates[0]) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveOrigin(db, settings) {
+  let latitude = Number(settings.origin_latitude);
+  let longitude = Number(settings.origin_longitude);
+  if (validCoordinates(latitude, longitude)) return { latitude, longitude };
+  const resolved = await geocodeAddress(settings.origin_address || DEFAULT_ORIGIN_ADDRESS);
+  if (!resolved) throw new Error('RedVeg business address could not be located. Check GEOAPIFY_API_KEY and the delivery origin settings.');
+  for (const [key, value] of [['origin_latitude', resolved.latitude], ['origin_longitude', resolved.longitude]]) {
+    await db.execute({
+      sql: `INSERT INTO delivery_pricing_settings (setting_key, setting_value) VALUES (?, ?)
+        ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = CURRENT_TIMESTAMP`,
+      args: [key, String(value)],
+    });
+  }
+  return resolved;
+}
+
+async function resolveDestination(destination = {}) {
+  const pincode = String(destination.pincode || '').trim();
+  const addressLine = String(destination.addressLine || '').trim();
+  const hasSpecificAddress = addressLine.length >= 6;
+  if (validCoordinates(destination.latitude, destination.longitude) && !hasSpecificAddress) {
+    return { latitude: Number(destination.latitude), longitude: Number(destination.longitude) };
+  }
+
+  if (hasSpecificAddress && /^\d{6}$/.test(pincode)) {
+    const address = [addressLine, destination.area || destination.locality, pincode, destination.city || 'Kolkata', destination.state || 'West Bengal', 'India']
+      .map(value => String(value || '').trim()).filter(Boolean).join(', ');
+    const exactAddress = await geocodeAddress(address, pincode);
+    if (exactAddress) return exactAddress;
+  }
+
+  if (validCoordinates(destination.latitude, destination.longitude)) {
+    return { latitude: Number(destination.latitude), longitude: Number(destination.longitude) };
+  }
+
+  if (/^\d{6}$/.test(pincode)) {
+    const locationsDb = await getDatabaseConnection('availablePincodes');
+    const result = await locationsDb.execute({
+      sql: 'SELECT latitude, longitude FROM available_pincodes WHERE pincode = ? AND latitude IS NOT NULL AND longitude IS NOT NULL',
+      args: [pincode],
+    });
+    const location = result.rows[0];
+    if (location && validCoordinates(location.latitude, location.longitude)) {
+      return { latitude: Number(location.latitude), longitude: Number(location.longitude) };
+    }
+  }
+
+  const address = [destination.addressLine, destination.area || destination.locality, pincode, destination.city || 'Kolkata', destination.state || 'West Bengal', 'India']
+    .map(value => String(value || '').trim()).filter(Boolean).join(', ');
+  if (address.length < 5) throw new DeliveryQuoteError('Enter a delivery pincode or choose a delivery location to calculate the fee.', 400);
+  const resolved = await geocodeAddress(address, /^\d{6}$/.test(pincode) ? pincode : null);
+  if (!resolved) throw new DeliveryQuoteError('Delivery address could not be located. Select a serviceable pincode and try again.');
+
+  if (/^\d{6}$/.test(pincode)) {
+    const locationsDb = await getDatabaseConnection('availablePincodes');
+    await locationsDb.execute({
+      sql: `UPDATE available_pincodes SET latitude = ?, longitude = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE pincode = ? AND (latitude IS NULL OR longitude IS NULL)`,
+      args: [resolved.latitude, resolved.longitude, pincode],
+    });
+  }
+  return resolved;
+}
+
+function haversineDistanceMeters(origin, destination) {
+  const radians = value => value * Math.PI / 180;
+  const earthRadius = 6371000;
+  const dLatitude = radians(destination.latitude - origin.latitude);
+  const dLongitude = radians(destination.longitude - origin.longitude);
+  const a = Math.sin(dLatitude / 2) ** 2 +
+    Math.cos(radians(origin.latitude)) * Math.cos(radians(destination.latitude)) * Math.sin(dLongitude / 2) ** 2;
+  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function getDrivingDistanceMeters(origin, destination) {
+  const apiKey = String(process.env.GEOAPIFY_API_KEY || '').trim();
+  if (apiKey) {
+    const url = new URL('https://api.geoapify.com/v1/routing');
+    url.searchParams.set('waypoints', `${origin.latitude},${origin.longitude}|${destination.latitude},${destination.longitude}`);
+    url.searchParams.set('mode', 'drive');
+    url.searchParams.set('apiKey', apiKey);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`Route lookup returned HTTP ${response.status}`);
+      const payload = await response.json();
+      const meters = Number(payload?.features?.[0]?.properties?.distance);
+      if (Number.isFinite(meters) && meters >= 0) return { meters, method: 'road' };
+    } catch (error) {
+      // Try the independent OSRM router if Geoapify is temporarily unavailable.
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}?overview=false&alternatives=false&steps=false`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(osrmUrl, { signal: controller.signal });
+    if (!response.ok) throw new Error(`Route lookup returned HTTP ${response.status}`);
+    const payload = await response.json();
+    const meters = Number(payload?.routes?.[0]?.distance);
+    if (payload?.code === 'Ok' && Number.isFinite(meters) && meters >= 0) return { meters, method: 'road' };
+  } catch (error) {
+    // Routing providers can be briefly unreachable; the straight-line estimate
+    // keeps checkout available while still deriving the charge from coordinates.
+  } finally {
+    clearTimeout(timeout);
+  }
+  return { meters: haversineDistanceMeters(origin, destination), method: 'straight_line_estimate' };
+}
+
+async function quoteDeliveryFee(destination, options = {}) {
+  const pincode = String(destination?.pincode || '').trim();
+  if (!/^\d{6}$/.test(pincode)) {
+    throw new DeliveryQuoteError('Choose a valid six-digit delivery pincode.', 400);
+  }
+  const locationsDb = await getDatabaseConnection('availablePincodes');
+  const locationResult = await locationsDb.execute({
+    sql: 'SELECT is_serviceable FROM available_pincodes WHERE pincode = ?',
+    args: [pincode],
+  });
+  if (!locationResult.rows.length) {
+    throw new DeliveryQuoteError('This pincode is not listed for RedVeg delivery. Contact us to check availability.');
+  }
+  if (Number(locationResult.rows[0].is_serviceable) !== 1) {
+    throw new DeliveryQuoteError('Delivery is currently unavailable in this area. Choose another location or contact RedVeg.');
+  }
+
+  const catalogDb = await getDatabaseConnection('catalog');
+  const settings = await readPricingSettings(catalogDb);
+  const origin = await resolveOrigin(catalogDb, settings);
+  const target = await resolveDestination(destination);
+  const distance = await getDrivingDistanceMeters(origin, target);
+  const distanceKm = Math.round((distance.meters / 1000 + Number.EPSILON) * 100) / 100;
+  const ratePerKm = Number(settings.rate_per_km) || DEFAULT_RATE_PER_KM;
+  const deliveryRadiusKm = Math.max(0, Number(settings.delivery_radius_km) || 0);
+  if (deliveryRadiusKm > 0 && distanceKm > deliveryRadiusKm) {
+    throw new DeliveryQuoteError(`This address is ${distanceKm} km away, outside RedVeg's ${deliveryRadiusKm} km delivery radius.`);
+  }
+  const freeDeliveryEnabled = settings.free_delivery_enabled === '1';
+  const calculatedDeliveryFee = roundMoney(distanceKm * ratePerKm);
+  return {
+    originAddress: settings.origin_address || DEFAULT_ORIGIN_ADDRESS,
+    distanceKm,
+    ratePerKm,
+    deliveryFee: freeDeliveryEnabled ? 0 : calculatedDeliveryFee,
+    calculatedDeliveryFee,
+    freeDeliveryEnabled,
+    deliveryRadiusKm,
+    distanceMethod: distance.method,
+  };
+}
+
+async function getDeliveryPricingSettings() {
+  const db = await getDatabaseConnection('catalog');
+  const settings = await readPricingSettings(db);
+  return {
+    originAddress: settings.origin_address || DEFAULT_ORIGIN_ADDRESS,
+    ratePerKm: Number(settings.rate_per_km) || DEFAULT_RATE_PER_KM,
+    deliveryRadiusKm: Number(settings.delivery_radius_km) || 0,
+    freeDeliveryEnabled: settings.free_delivery_enabled === '1',
+  };
+}
+
+async function updateDeliveryPricingSettings(updates = {}) {
+  const db = await getDatabaseConnection('catalog');
+  await ensureDeliveryPricingSchema(db);
+  const allowed = {
+    originAddress: ['origin_address', value => typeof value === 'string' && value.trim().length >= 8 && value.trim().length <= 300 ? value.trim() : null],
+    ratePerKm: ['rate_per_km', value => Number.isFinite(Number(value)) && Number(value) > 0 && Number(value) <= 100000 ? String(Number(value)) : null],
+    deliveryRadiusKm: ['delivery_radius_km', value => Number.isFinite(Number(value)) && Number(value) > 0 && Number(value) <= 500 ? String(Number(value)) : null],
+    freeDeliveryEnabled: ['free_delivery_enabled', value => typeof value === 'boolean' ? (value ? '1' : '0') : null],
+  };
+  for (const [field, [key, normalize]] of Object.entries(allowed)) {
+    if (!Object.prototype.hasOwnProperty.call(updates, field)) continue;
+    const value = normalize(updates[field]);
+    if (value === null) throw Object.assign(new Error(`Invalid value for ${field}.`), { statusCode: 400 });
+    await db.execute({
+      sql: `INSERT INTO delivery_pricing_settings (setting_key, setting_value) VALUES (?, ?)
+        ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, updated_at = CURRENT_TIMESTAMP`,
+      args: [key, value],
+    });
+  }
+  return getDeliveryPricingSettings();
+}
+
+module.exports = { DeliveryQuoteError, quoteDeliveryFee, getDeliveryPricingSettings, updateDeliveryPricingSettings, ensureDeliveryPricingSchema };

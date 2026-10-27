@@ -37,10 +37,14 @@ type CouponDraft = {
 
 type CouponFilter = "all" | "active" | "inactive";
 const PAGE_SIZE = 25;
+const IST_OFFSET_MINUTES = 330;
 
-function localDateInput(value: Date) {
-  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
+function istDateTimeInput(value: Date) {
+  return new Date(value.getTime() + IST_OFFSET_MINUTES * 60_000).toISOString().slice(0, 16);
+}
+
+function parseIstDateTimeInput(value: string) {
+  return new Date(`${value}:00+05:30`);
 }
 
 function makeEmptyDraft(): CouponDraft {
@@ -54,8 +58,8 @@ function makeEmptyDraft(): CouponDraft {
     discountValue: "10",
     maxDiscountAmount: "",
     minOrderAmount: "0",
-    startsAt: localDateInput(start),
-    endsAt: localDateInput(end),
+    startsAt: istDateTimeInput(start),
+    endsAt: istDateTimeInput(end),
     usageLimit: "",
     isActive: true,
   };
@@ -69,8 +73,8 @@ function toDraft(coupon: Coupon): CouponDraft {
     discountValue: String(coupon.discountValue),
     maxDiscountAmount: coupon.maxDiscountAmount == null ? "" : String(coupon.maxDiscountAmount),
     minOrderAmount: String(coupon.minOrderAmount),
-    startsAt: localDateInput(new Date(coupon.startsAt)),
-    endsAt: localDateInput(new Date(coupon.endsAt)),
+    startsAt: istDateTimeInput(new Date(coupon.startsAt)),
+    endsAt: istDateTimeInput(new Date(coupon.endsAt)),
     usageLimit: coupon.usageLimit == null ? "" : String(coupon.usageLimit),
     isActive: coupon.isActive,
   };
@@ -88,7 +92,7 @@ function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "—"
-    : new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date);
+    : `${new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }).format(date)} IST`;
 }
 
 function formatDiscount(coupon: Coupon) {
@@ -185,8 +189,8 @@ export default function AdminCoupons() {
         discountValue: Number(draft.discountValue),
         maxDiscountAmount: draft.maxDiscountAmount === "" ? null : Number(draft.maxDiscountAmount),
         minOrderAmount: Number(draft.minOrderAmount),
-        startsAt: new Date(draft.startsAt).toISOString(),
-        endsAt: new Date(draft.endsAt).toISOString(),
+        startsAt: parseIstDateTimeInput(draft.startsAt).toISOString(),
+        endsAt: parseIstDateTimeInput(draft.endsAt).toISOString(),
         usageLimit: draft.usageLimit === "" ? null : Number(draft.usageLimit),
         isActive: draft.isActive,
       };
@@ -326,7 +330,7 @@ export default function AdminCoupons() {
               <div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="coupon-discount-type" className="mb-1.5 block text-xs font-black">Discount type</label><select id="coupon-discount-type" value={draft.discountType} onChange={(event) => setDraft((current) => ({ ...current, discountType: event.target.value as CouponDraft["discountType"] }))} className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40"><option value="percentage">Percentage</option><option value="fixed">Fixed amount (₹)</option></select></div><div><label htmlFor="coupon-discount-value" className="mb-1.5 block text-xs font-black">Discount value</label><input id="coupon-discount-value" required type="number" min="0.01" max={draft.discountType === "percentage" ? 100 : undefined} step="0.01" value={draft.discountValue} onChange={(event) => setDraft((current) => ({ ...current, discountValue: event.target.value }))} className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div></div>
               {draft.discountType === "percentage" && <div><label htmlFor="coupon-max-discount" className="mb-1.5 block text-xs font-black">Maximum discount <span className="font-normal text-muted-foreground">(₹, optional)</span></label><input id="coupon-max-discount" type="number" min="0.01" step="0.01" value={draft.maxDiscountAmount} onChange={(event) => setDraft((current) => ({ ...current, maxDiscountAmount: event.target.value }))} placeholder="No cap" className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div>}
               <div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="coupon-min-order" className="mb-1.5 block text-xs font-black">Minimum order (₹)</label><input id="coupon-min-order" required type="number" min="0" step="0.01" value={draft.minOrderAmount} onChange={(event) => setDraft((current) => ({ ...current, minOrderAmount: event.target.value }))} className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div><div><label htmlFor="coupon-usage-limit" className="mb-1.5 block text-xs font-black">Total usage limit <span className="font-normal text-muted-foreground">(optional)</span></label><input id="coupon-usage-limit" type="number" min="1" step="1" value={draft.usageLimit} onChange={(event) => setDraft((current) => ({ ...current, usageLimit: event.target.value }))} placeholder="Unlimited" className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div></div>
-              <div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="coupon-starts" className="mb-1.5 block text-xs font-black">Starts</label><input id="coupon-starts" required type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((current) => ({ ...current, startsAt: event.target.value }))} className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div><div><label htmlFor="coupon-ends" className="mb-1.5 block text-xs font-black">Ends</label><input id="coupon-ends" required type="datetime-local" min={draft.startsAt} value={draft.endsAt} onChange={(event) => setDraft((current) => ({ ...current, endsAt: event.target.value }))} className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div></div>
+              <div className="grid gap-4 sm:grid-cols-2"><div><label htmlFor="coupon-starts" className="mb-1.5 block text-xs font-black">Starts (IST, GMT+5:30)</label><input id="coupon-starts" required type="datetime-local" value={draft.startsAt} onChange={(event) => setDraft((current) => ({ ...current, startsAt: event.target.value }))} className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div><div><label htmlFor="coupon-ends" className="mb-1.5 block text-xs font-black">Ends (IST, GMT+5:30)</label><input id="coupon-ends" required type="datetime-local" min={draft.startsAt} value={draft.endsAt} onChange={(event) => setDraft((current) => ({ ...current, endsAt: event.target.value }))} className="h-11 w-full rounded-xl border border-black/10 bg-white px-3.5 text-sm outline-none focus:border-[#B4232C]/40" /></div></div>
               <label className="flex items-center justify-between rounded-2xl border border-black/5 bg-white p-4"><span><span className="block text-sm font-black">Coupon enabled</span><span className="mt-1 block text-xs text-muted-foreground">Date and usage rules still determine whether customers can use it.</span></span><input type="checkbox" checked={draft.isActive} onChange={(event) => setDraft((current) => ({ ...current, isActive: event.target.checked }))} className="size-5 accent-[#B4232C]" /></label>
               {formError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-[#8B2B2B]">{formError}</p>}
               <div className="flex flex-col-reverse gap-3 border-t border-black/5 pt-5 sm:flex-row sm:justify-end"><Button type="button" variant="outline" disabled={saving} onClick={closeEditor} className="rounded-full">Cancel</Button><Button type="submit" disabled={saving} className="rounded-full bg-[#B4232C] px-5 font-black text-white hover:bg-[#951D24]">{saving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{editingCoupon ? "Save changes" : "Create coupon"}</Button></div>

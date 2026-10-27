@@ -8,6 +8,8 @@ const { ensureImportedSalesSchema } = require('../stats/imported-sales.schema');
 const { ensureCustomerInvoicePaymentsSchema } = require('./customer-invoice-payments.schema');
 const { createPaymentOverrideMap, getEffectiveInvoice, summarizeImportedInvoices } = require('../../../services/imported-sales-payments.service');
 const { calculatePaymentUpdate } = require('../../../services/payment.service');
+const { ensureImportedCustomersSchema } = require('./imported-customers.schema');
+const { randomUUID } = require('crypto');
 
 const initializedCustomerSchemas = new WeakMap();
 
@@ -48,7 +50,8 @@ const generateCustomerId = async () => {
     try {
       // Get the last customer ID
       const result = await db.execute({
-        sql: 'SELECT customer_id FROM customers ORDER BY customer_id DESC LIMIT 1'
+        sql: 'SELECT customer_id FROM customers ORDER BY customer_id DESC LIMIT 1',
+        args: [],
       });
 
       let nextId = 'C0001'; // Default for first customer
@@ -289,29 +292,22 @@ const getAllCustomers = async (req, res) => {
   try {
     const db = await getCustomerDatabase();
     await ensureImportedSalesPartiesSchema(db);
+    const ordersDb = await getDatabaseConnection('orders');
+    const { ensureCustomerAccountSchema } = require('./customer-account.schema');
+    await ensureCustomerAccountSchema(ordersDb);
+    await ensureImportedCustomersSchema(db);
     const requestedLimit = Number.parseInt(req.query.limit, 10);
     const requestedOffset = Number.parseInt(req.query.offset, 10);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 25;
     const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
     const search = String(req.query.search || '').trim().slice(0, 100);
-    const directory = 'WITH directory AS (' +
-      " SELECT customer_id, name, phone_no AS phoneNo, created_at, NULL AS first_sale_date, 'account' AS record_type FROM customers" +
-      " UNION ALL SELECT report_party_id AS customer_id, name, NULL AS phoneNo, created_at, first_sale_date, 'sales_report' AS record_type FROM imported_sales_parties" +
-      ' )';
-    const where = search ? " WHERE LOWER(COALESCE(name, '')) LIKE LOWER(?) OR LOWER(COALESCE(customer_id, '')) LIKE LOWER(?) OR LOWER(COALESCE(phoneNo, '')) LIKE LOWER(?)" : '';
-    const searchArgs = search ? ['%' + search + '%', '%' + search + '%', '%' + search + '%'] : [];
-    const countResult = await db.execute({
-      sql: directory + ' SELECT COUNT(*) AS total FROM directory' + where,
-      args: searchArgs,
-    });
-    const result = await db.execute({
-      sql: directory + ' SELECT customer_id, name, phoneNo, created_at, first_sale_date, record_type AS recordType FROM directory' + where + ' ORDER BY name COLLATE NOCASE, customer_id LIMIT ? OFFSET ?',
-      args: [...searchArgs, limit, offset],
-    });
     await ensureCustomerInvoicePaymentsSchema(db);
-    const ordersDb = await getDatabaseConnection('orders');
     await ensureImportedSalesSchema(ordersDb);
-    const [invoiceRowsResult, overrideRowsResult] = await Promise.all([
+    const [accountRows, reportPartyRows, firebaseRows, invoiceRowsResult, overrideRowsResult, importedRows] = await Promise.all([
+      db.execute('SELECT customer_id, name, phone_no AS phoneNo, created_at FROM customers'),
+      db.execute('SELECT report_party_id AS customer_id, name, created_at, first_sale_date FROM imported_sales_parties'),
+      ordersDb.execute(`SELECT firebase_uid, display_name, email, phone_number, created_at
+        FROM customer_profiles WHERE firebase_uid IS NOT NULL AND TRIM(firebase_uid) != ''`),
       ordersDb.execute({
         sql: `SELECT invoice_no, party_key, transaction_type, payment_status, total_amount, received_amount, balance_amount
           FROM imported_sales_invoices`,
@@ -319,7 +315,29 @@ const getAllCustomers = async (req, res) => {
       }),
       db.execute(`SELECT report_party_id, invoice_no, payment_status, received_amount, balance_amount, updated_at, updated_by
         FROM customer_invoice_payment_overrides`),
+      db.execute(`SELECT imported_customer_id AS customer_id, name, phone_number AS phoneNo, address, locality, pincode, notes, created_at, updated_at
+        FROM imported_customers`),
     ]);
+    const directory = [
+      ...accountRows.rows.map((row) => ({ ...row, recordType: 'account', first_sale_date: null })),
+      ...reportPartyRows.rows.map((row) => ({ ...row, phoneNo: null, recordType: 'sales_report' })),
+      ...firebaseRows.rows.map((row) => ({
+        customer_id: `FIREBASE-${row.firebase_uid}`,
+        name: row.display_name || row.email || 'Firebase customer',
+        phoneNo: row.phone_number || null,
+        created_at: row.created_at,
+        first_sale_date: null,
+        recordType: 'firebase',
+      })),
+      ...importedRows.rows.map((row) => ({ ...row, recordType: 'imported', first_sale_date: null })),
+    ];
+    const normalizedSearch = search.toLocaleLowerCase();
+    const filtered = search ? directory.filter((row) =>
+      [row.name, row.customer_id, row.phoneNo].some((value) => String(value || '').toLocaleLowerCase().includes(normalizedSearch))
+    ) : directory;
+    filtered.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }) ||
+      String(a.customer_id || '').localeCompare(String(b.customer_id || '')));
+    const pageRows = filtered.slice(offset, offset + limit);
     const summaries = summarizeImportedInvoices(invoiceRowsResult.rows, createPaymentOverrideMap(overrideRowsResult.rows));
     const toSalesSummary = (row = {}) => ({
       invoiceCount: Number(row.invoiceCount) || 0,
@@ -331,14 +349,140 @@ const getAllCustomers = async (req, res) => {
       cancelledInvoiceCount: Number(row.cancelledInvoiceCount) || 0,
     });
     const salesReportSummary = toSalesSummary(summaries.overall);
-    const data = result.rows.map((row) => ({
+    const data = pageRows.map((row) => ({
       ...row,
       salesReport: row.recordType === 'sales_report' ? toSalesSummary(summaries.byParty.get(String(row.customer_id))) : null,
     }));
-    res.status(200).json({ success: true, count: Number(countResult.rows[0]?.total) || 0, salesReportSummary, data });
+    res.status(200).json({ success: true, count: filtered.length, salesReportSummary, data });
   } catch (error) {
     logger.error('Error fetching customers:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+function normalizeCustomerPhone(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits.length === 10 ? digits : '';
+}
+
+function cleanImportedCustomer(row = {}) {
+  const name = String(row.name || row.customerName || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+  const phone = String(row.phone || row.phoneNo || row.mobile || row.mobileNumber || row.phone_number || '').trim().slice(0, 30);
+  const normalizedPhone = normalizeCustomerPhone(phone);
+  const address = String(row.address || row.addressLine || '').trim().slice(0, 500);
+  const locality = String(row.locality || row.area || '').trim().slice(0, 160);
+  const pincode = String(row.pincode || row.pinCode || row.postalCode || '').replace(/\D/g, '').slice(0, 10);
+  const notes = String(row.notes || row.note || '').trim().slice(0, 500);
+  return { name, phone, normalizedPhone, address, locality, pincode, notes };
+}
+
+const importCustomers = async (req, res) => {
+  try {
+    const rows = req.body?.customers;
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ success: false, message: 'Upload a spreadsheet with customer rows.' });
+    if (rows.length > 1000) return res.status(413).json({ success: false, message: 'Import up to 1,000 rows per upload.' });
+
+    const customerDb = await getCustomerDatabase();
+    const ordersDb = await getDatabaseConnection('orders');
+    const { ensureCustomerAccountSchema } = require('./customer-account.schema');
+    await Promise.all([ensureImportedCustomersSchema(customerDb), ensureCustomerAccountSchema(ordersDb)]);
+    const [accountRows, firebaseRows, importedRows] = await Promise.all([
+      customerDb.execute({ sql: 'SELECT phone_no FROM customers', args: [] }),
+      ordersDb.execute({ sql: 'SELECT phone_number FROM customer_profiles WHERE phone_number IS NOT NULL', args: [] }),
+      customerDb.execute({ sql: 'SELECT normalized_phone FROM imported_customers', args: [] }),
+    ]);
+    const existingPhones = new Set([
+      ...accountRows.rows.map((row) => normalizeCustomerPhone(row.phone_no)),
+      ...firebaseRows.rows.map((row) => normalizeCustomerPhone(row.phone_number)),
+      ...importedRows.rows.map((row) => String(row.normalized_phone || '')),
+    ].filter(Boolean));
+    const batchPhones = new Set();
+    const errors = [];
+    const duplicates = [];
+    const inserted = [];
+    const pending = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const customer = cleanImportedCustomer(rows[index]);
+      const rowNumber = Number(rows[index]?.rowNumber) || index + 2;
+      if (!customer.name || !customer.normalizedPhone) {
+        errors.push({ row: rowNumber, reason: !customer.name ? 'Customer name is required' : 'A valid 10-digit phone number is required' });
+        continue;
+      }
+      if (existingPhones.has(customer.normalizedPhone) || batchPhones.has(customer.normalizedPhone)) {
+        duplicates.push(rowNumber);
+        continue;
+      }
+      batchPhones.add(customer.normalizedPhone);
+      const id = `IMP-${randomUUID()}`;
+      pending.push({ id, rowNumber, customer });
+    }
+    for (let index = 0; index < pending.length; index += 25) {
+      const batch = pending.slice(index, index + 25);
+      const results = await Promise.all(batch.map(({ id, customer }) => customerDb.execute({
+        sql: `INSERT OR IGNORE INTO imported_customers
+          (imported_customer_id, name, phone_number, normalized_phone, address, locality, pincode, notes, dedupe_key, source_file)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [id, customer.name, customer.phone, customer.normalizedPhone, customer.address || null, customer.locality || null,
+          customer.pincode || null, customer.notes || null, `phone:${customer.normalizedPhone}`, String(req.body?.fileName || '').slice(0, 180) || null],
+      })));
+      results.forEach((result, resultIndex) => {
+        const candidate = batch[resultIndex];
+        if (Number(result.rowsAffected) > 0) {
+          inserted.push({ row: candidate.rowNumber, customerId: candidate.id });
+          existingPhones.add(candidate.customer.normalizedPhone);
+        } else {
+          duplicates.push(candidate.rowNumber);
+        }
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: 'Customer sheet processed. Existing records were left unchanged.',
+      data: { inserted: inserted.length, skippedDuplicates: duplicates.length, rejected: errors.length, insertedRows: inserted, duplicateRows: duplicates, errors },
+    });
+  } catch (error) {
+    logger.error('Error importing customers:', error);
+    return res.status(500).json({ success: false, message: 'Customer import failed. No existing customer records were changed.' });
+  }
+};
+
+const updateImportedCustomer = async (req, res) => {
+  try {
+    const customerId = String(req.params.customerId || '').trim();
+    const customer = cleanImportedCustomer(req.body || {});
+    if (!customer.name || !customer.normalizedPhone) return res.status(400).json({ success: false, message: 'A name and valid 10-digit phone number are required.' });
+    const db = await getCustomerDatabase();
+    await ensureImportedCustomersSchema(db);
+    const ordersDb = await getDatabaseConnection('orders');
+    const { ensureCustomerAccountSchema } = require('./customer-account.schema');
+    await ensureCustomerAccountSchema(ordersDb);
+    const existing = await db.execute({ sql: 'SELECT imported_customer_id FROM imported_customers WHERE imported_customer_id = ?', args: [customerId] });
+    if (!existing.rows.length) return res.status(404).json({ success: false, message: 'Imported customer not found.' });
+    const [accounts, firebase, imported] = await Promise.all([
+      db.execute({ sql: 'SELECT phone_no FROM customers', args: [] }),
+      ordersDb.execute({ sql: 'SELECT phone_number FROM customer_profiles WHERE phone_number IS NOT NULL', args: [] }),
+      db.execute({ sql: 'SELECT imported_customer_id, normalized_phone FROM imported_customers WHERE imported_customer_id != ?', args: [customerId] }),
+    ]);
+    const phoneExists = [...accounts.rows.map((row) => row.phone_no), ...firebase.rows.map((row) => row.phone_number), ...imported.rows.map((row) => row.normalized_phone)]
+      .some((phone) => normalizeCustomerPhone(phone) === customer.normalizedPhone);
+    if (phoneExists) return res.status(409).json({ success: false, message: 'This phone number belongs to another customer record.' });
+    await db.execute({
+      sql: `UPDATE imported_customers SET name = ?, phone_number = ?, normalized_phone = ?, address = ?, locality = ?, pincode = ?, notes = ?, dedupe_key = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE imported_customer_id = ?`,
+      args: [customer.name, customer.phone, customer.normalizedPhone, customer.address || null, customer.locality || null, customer.pincode || null,
+        customer.notes || null, `phone:${customer.normalizedPhone}`, customerId],
+    });
+    const updated = await db.execute({
+      sql: `SELECT imported_customer_id AS customer_id, name, phone_number AS phoneNo, address, locality, pincode, notes, created_at, updated_at
+        FROM imported_customers WHERE imported_customer_id = ?`,
+      args: [customerId],
+    });
+    return res.status(200).json({ success: true, data: { ...updated.rows[0], recordType: 'imported' } });
+  } catch (error) {
+    logger.error('Error updating imported customer:', error);
+    return res.status(500).json({ success: false, message: 'Could not update imported customer.' });
   }
 };
 
@@ -476,5 +620,7 @@ module.exports = {
   getAllCustomers,
   getCustomerSalesInvoices,
   updateCustomerSalesInvoicePayment,
+  importCustomers,
+  updateImportedCustomer,
   generateCustomerId
 };

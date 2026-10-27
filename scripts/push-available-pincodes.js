@@ -1,5 +1,8 @@
 const { getDatabaseConnection, initializeDatabaseConnections } = require('../server/config/turso');
 const { generateValidationError } = require('../server/utils/error-classes');
+const ACTIVE_POSTAL_FALLBACKS = new Map(
+  require('../data/active-delivery-pincode-fallbacks.json').postalCodes.map(location => [location.pincode, location])
+);
 
 const PINCODE_DATA = [
   ['700001', 'Kolkata GPO', 'Kolkata', 'West Bengal', 1, null, null],
@@ -60,7 +63,9 @@ const PINCODE_DATA = [
   ['700056', 'Park Street', 'Kolkata', 'West Bengal', 1, null, null],
   ['700057', 'Camac Street', 'Kolkata', 'West Bengal', 1, null, null],
   ['700058', 'Chowringhee', 'Kolkata', 'West Bengal', 1, null, null],
-  ['700059', 'Park Lane', 'Kolkata', 'West Bengal', 1, null, null],
+  // Keep the Baguiati reference point for PIN 700059. Its routed distance from
+  // the configured RedVeg origin is approximately 8.8 km.
+  ['700059', 'Baguiati', 'Kolkata', 'West Bengal', 1, 22.6094952294, 88.4359881952],
   ['700060', 'Lord Sinha Road', 'Kolkata', 'West Bengal', 1, null, null],
   ['700061', 'Russel Street', 'Kolkata', 'West Bengal', 1, null, null],
   ['700062', 'Shakespeare Sarani', 'Kolkata', 'West Bengal', 1, null, null],
@@ -115,6 +120,9 @@ async function run() {
 
     for (const [pincode, area, city, state, isServiceable, latitude, longitude] of PINCODE_DATA) {
       try {
+        const fallback = ACTIVE_POSTAL_FALLBACKS.get(pincode);
+        const deliveryLatitude = latitude ?? fallback?.latitude ?? null;
+        const deliveryLongitude = longitude ?? fallback?.longitude ?? null;
         // Validate pincode
         if (!/^\d{6}$/.test(pincode)) {
           console.warn(`Skipping invalid pincode format: ${pincode}`);
@@ -130,14 +138,14 @@ async function run() {
         }
 
         // Validate latitude and longitude if provided
-        if (latitude !== null && (typeof latitude !== 'number' || latitude < -90 || latitude > 90)) {
-          console.warn(`Skipping invalid latitude for pincode ${pincode}: ${latitude}`);
+        if (deliveryLatitude !== null && (typeof deliveryLatitude !== 'number' || deliveryLatitude < -90 || deliveryLatitude > 90)) {
+          console.warn(`Skipping invalid latitude for pincode ${pincode}: ${deliveryLatitude}`);
           skippedCount++;
           continue;
         }
 
-        if (longitude !== null && (typeof longitude !== 'number' || longitude < -180 || longitude > 180)) {
-          console.warn(`Skipping invalid longitude for pincode ${pincode}: ${longitude}`);
+        if (deliveryLongitude !== null && (typeof deliveryLongitude !== 'number' || deliveryLongitude < -180 || deliveryLongitude > 180)) {
+          console.warn(`Skipping invalid longitude for pincode ${pincode}: ${deliveryLongitude}`);
           skippedCount++;
           continue;
         }
@@ -149,14 +157,11 @@ async function run() {
               (pincode, area, city, state, is_serviceable, latitude, longitude, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(pincode) DO UPDATE SET
-              area = excluded.area,
-              city = excluded.city,
-              state = excluded.state,
-              latitude = excluded.latitude,
-              longitude = excluded.longitude,
+              latitude = COALESCE(excluded.latitude, available_pincodes.latitude),
+              longitude = COALESCE(excluded.longitude, available_pincodes.longitude),
               updated_at = CURRENT_TIMESTAMP
           `,
-          args: [pincode, area, city, state, isServiceable ? 1 : 0, latitude, longitude]
+            args: [pincode, area, city, state, isServiceable ? 1 : 0, deliveryLatitude, deliveryLongitude]
         });
 
         if (result.rowsAffected > 0) {

@@ -6,6 +6,20 @@ import { apiFetch } from '@/lib/api';
 const liveCampaignFetch = (path: string, init: RequestInit = {}) =>
   apiFetch(path, init, { forceBackend: true });
 
+const campaignsUpdatedStorageKey = "redveg:campaigns-updated";
+export const campaignsUpdatedEvent = "redveg:campaigns-updated";
+
+function announceCampaignsUpdated() {
+  if (typeof window === "undefined") return;
+  const updatedAt = String(Date.now());
+  try {
+    window.localStorage.setItem(campaignsUpdatedStorageKey, updatedAt);
+  } catch {
+    // The local tab event still refreshes even if browser storage is blocked.
+  }
+  window.dispatchEvent(new CustomEvent(campaignsUpdatedEvent, { detail: updatedAt }));
+}
+
 
 // Helper to handle fetch responses
 async function handleFetchResponse(response: Response) {
@@ -26,6 +40,16 @@ async function handleFetchResponse(response: Response) {
 }
 
 export const campaignApi = {
+  getStorefrontOffers: async (options: { locationId?: string; device?: 'mobile' | 'desktop' } = {}): Promise<Campaign[]> => {
+    const params = new URLSearchParams();
+    if (options.locationId) params.set('locationId', options.locationId);
+    if (options.device) params.set('device', options.device);
+    const query = params.toString();
+    const response = await liveCampaignFetch(`campaigns/storefront${query ? `?${query}` : ''}`, { credentials: 'include' });
+    const data = await handleFetchResponse(response);
+    return Array.isArray(data?.data) ? data.data : [];
+  },
+
   getCampaigns: async (options?: {
     status?: CampaignStatus[];
     occasion?: CampaignOccasion[];
@@ -114,6 +138,7 @@ export const campaignApi = {
 
       const data = await handleFetchResponse(response);
       if (data && data.data) {
+        announceCampaignsUpdated();
         return data.data;
       }
       throw new Error('Invalid response from server');
@@ -140,6 +165,7 @@ export const campaignApi = {
 
       const data = await handleFetchResponse(response);
       if (data && data.data) {
+        announceCampaignsUpdated();
         return data.data;
       }
       throw new Error('Invalid response from server');
@@ -169,6 +195,7 @@ export const campaignApi = {
 
       // Assuming backend returns { success: true }
       const data = await response.json();
+      if (data.success === true) announceCampaignsUpdated();
       return data.success === true;
     } catch (error) {
       console.error(`Error deleting campaign ${id}:`, error);

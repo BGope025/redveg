@@ -7,14 +7,33 @@ const { createPaymentOverrideMap, getEffectiveInvoice, summarizeImportedInvoices
 const { ensureFinancialTransactionsSchema } = require('./financial-transactions.schema');
 
 const FINANCIAL_TRANSACTION_TYPES = new Set(['purchase', 'expense']);
+const BUSINESS_TIME_ZONE = 'Asia/Kolkata';
+
+const dateInKolkata = (date) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const shiftKolkataDate = (date, { months = 0, days = 0 }) => {
+  const shifted = new Date(`${date}T00:00:00Z`);
+  shifted.setUTCMonth(shifted.getUTCMonth() + months);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return dateInKolkata(shifted);
+};
 
 const getTransactionPeriod = (date, bucket) => {
   if (bucket === 'day') return date;
   if (bucket === 'month') return date.slice(0, 7);
-  const parsed = new Date(`${date}T00:00:00+05:30`);
-  const start = new Date(parsed.getFullYear(), 0, 1);
+  const parsed = new Date(`${date}T00:00:00Z`);
+  const start = new Date(`${date.slice(0, 4)}-01-01T00:00:00Z`);
   const day = Math.floor((parsed - start) / 86400000);
-  const week = Math.ceil((day + start.getDay() + 1) / 7);
+  const week = Math.ceil((day + start.getUTCDay() + 1) / 7);
   return `${date.slice(0, 4)}-${String(week).padStart(2, '0')}`;
 };
 
@@ -28,11 +47,11 @@ const getStats = async (req, res) => {
 
     // Get today's aggregates (Kolkata timezone)
     const todayStart = await ordersDb.execute({
-      sql: "SELECT datetime('now', 'start of day', '-5 hours', '-30 minutes') as start",
+      sql: "SELECT datetime('now', '+5 hours', '+30 minutes', 'start of day', '-5 hours', '-30 minutes') as start",
       args: [],
     });
     const todayEnd = await ordersDb.execute({
-      sql: "SELECT datetime('now', 'start of day', '+1 day', '-5 hours', '-30 minutes') as end",
+      sql: "SELECT datetime('now', '+5 hours', '+30 minutes', 'start of day', '+1 day', '-5 hours', '-30 minutes') as end",
       args: [],
     });
     const startToday = todayStart.rows[0].start;
@@ -40,11 +59,11 @@ const getStats = async (req, res) => {
 
     // Get yesterday's aggregates
     const yesterdayStart = await ordersDb.execute({
-      sql: "SELECT datetime('now', 'start of day', '-1 day', '-5 hours', '-30 minutes') as start",
+      sql: "SELECT datetime('now', '+5 hours', '+30 minutes', 'start of day', '-1 day', '-5 hours', '-30 minutes') as start",
       args: [],
     });
     const yesterdayEnd = await ordersDb.execute({
-      sql: "SELECT datetime('now', 'start of day', '0 days', '-5 hours', '-30 minutes') as end",
+      sql: "SELECT datetime('now', '+5 hours', '+30 minutes', 'start of day', '-5 hours', '-30 minutes') as end",
       args: [],
     });
     const startYesterday = yesterdayStart.rows[0].start;
@@ -176,32 +195,26 @@ const getRevenueStats = async (req, res) => {
     } else {
       // Use range parameter
       const now = new Date();
-      let rangeStart, rangeEnd;
+      const todayInKolkata = dateInKolkata(now);
+      let rangeStartDate = null;
       switch (range) {
         case 'lifetime':
           // No lower bound, use earliest order date
-          rangeStart = null; // we'll handle in query
-          rangeEnd = now.toISOString().split('T')[0];
           break;
         case '12m':
-          rangeStart = new Date(now);
-          rangeStart.setMonth(rangeStart.getMonth() - 12);
+          rangeStartDate = shiftKolkataDate(todayInKolkata, { months: -12 });
           break;
         case '6m':
-          rangeStart = new Date(now);
-          rangeStart.setMonth(rangeStart.getMonth() - 6);
+          rangeStartDate = shiftKolkataDate(todayInKolkata, { months: -6 });
           break;
         case '30d':
-          rangeStart = new Date(now);
-          rangeStart.setDate(rangeStart.getDate() - 30);
+          rangeStartDate = shiftKolkataDate(todayInKolkata, { days: -30 });
           break;
         default:
           return res.status(400).json({ success: false, message: 'Invalid range parameter' });
       }
-      if (rangeStart) {
-        startDate = rangeStart.toISOString().split('T')[0];
-      }
-      endDate = now.toISOString().split('T')[0];
+      startDate = rangeStartDate;
+      endDate = todayInKolkata;
     }
 
     // Convert to Kolkata time UTC boundaries
@@ -364,14 +377,14 @@ const getRevenueStats = async (req, res) => {
       let label = row.period;
       if (bucket === 'day') {
         // period is YYYY-MM-DD
-        label = new Date(row.period).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+        label = new Date(row.period).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: BUSINESS_TIME_ZONE });
       } else if (bucket === 'week') {
         // period is YYYY-WW (week number)
         // We'll approximate label as year and week number
         label = `Week ${row.period.split('-')[1]} ${row.period.split('-')[0]}`;
       } else if (bucket === 'month') {
         // period is YYYY-MM
-        label = new Date(`${row.period}-01`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+        label = new Date(`${row.period}-01`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: BUSINESS_TIME_ZONE });
       }
       return {
         period: row.period,
@@ -383,9 +396,9 @@ const getRevenueStats = async (req, res) => {
 
 
     const reportLabel = (period) => {
-      if (bucket === 'day') return new Date(period).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+      if (bucket === 'day') return new Date(period).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: BUSINESS_TIME_ZONE });
       if (bucket === 'week') return 'Week ' + period.split('-')[1] + ' ' + period.split('-')[0];
-      return new Date(period + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+      return new Date(period + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: BUSINESS_TIME_ZONE });
     };
     const chartSeriesByPeriod = new Map(series.map((item) => [item.period, { ...item, importedInvoiced: 0, importedCollected: 0 }]));
     for (const row of reportSeriesResult.rows) {

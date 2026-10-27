@@ -28,8 +28,9 @@ export default function AdminHeaderTheme() {
     try {
       await applyTheme(id);
       toast.success(`"${themes.find((t) => t.id === id)?.name}" theme applied!`);
-    } catch {
-      toast.error("Failed to apply theme. Please try again.");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "The server could not save the theme.";
+      toast.error(`Could not apply theme: ${reason}`);
     } finally {
       setSaving(false);
     }
@@ -40,8 +41,9 @@ export default function AdminHeaderTheme() {
     try {
       await resetToDefault();
       toast.success("Header reset to Default RedVeg.");
-    } catch {
-      toast.error("Failed to reset theme.");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "The server could not reset the theme.";
+      toast.error(`Could not reset theme: ${reason}`);
     } finally {
       setSaving(false);
     }

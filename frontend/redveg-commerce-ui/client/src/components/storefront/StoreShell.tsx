@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Link, useLocation } from "wouter";
 import { StoreFooter } from "./StoreFooter";
 import { StoreHeader } from "./StoreHeader";
+import { CustomerPhonePrompt } from "./CustomerPhonePrompt";
 
 export function StoreShell({
   children,
@@ -18,7 +19,7 @@ export function StoreShell({
   const links = [
     { href: "/", label: "Home", icon: Home },
     { href: "/shop", label: "Shop", icon: Store },
-    { href: "/shop?category=offers", label: "Offers", icon: Gift },
+    { href: "/offers", label: "Offers", icon: Gift },
     { href: "/cart", label: "Cart", icon: ShoppingBag },
     {
       href: isAuthenticated ? "/profile" : "/login",
@@ -29,6 +30,7 @@ export function StoreShell({
   return (
     <div className="min-h-screen bg-[#FFFDF9] pb-16 text-[#251B18] lg:pb-0">
       <StoreHeader />
+      <CustomerPhonePrompt />
       <main>{children}</main>
       {showFooter && <StoreFooter />}
       <nav

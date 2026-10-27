@@ -14,18 +14,19 @@ import { Link } from "wouter";
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useCampaign } from "@/contexts/CampaignContext";
+import { getISTHour } from "@/lib/dateTime";
 
 export default function AdminDashboard() {
   const [products, setProducts] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [stats, setStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deviceHour, setDeviceHour] = useState(() => new Date().getHours());
+  const [deviceHour, setDeviceHour] = useState(() => getISTHour());
   const { activeCampaign } = useCampaign();
   const pendingOrders = orders.filter(order => order.status === "New");
 
   useEffect(() => {
-    const updateDeviceHour = () => setDeviceHour(new Date().getHours());
+    const updateDeviceHour = () => setDeviceHour(getISTHour());
     const timer = window.setInterval(updateDeviceHour, 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -161,7 +162,30 @@ export default function AdminDashboard() {
               View all <ChevronRight className="size-4" />
             </Link>
           </div>
-          <div className="overflow-x-auto">
+          <div className="space-y-3 p-3 md:hidden">
+            {pendingOrders.slice(0, 4).map(order => (
+              <article key={order.id} className="rounded-2xl bg-[#FBF9F6] p-4 ring-1 ring-black/5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-black">{order.id}</span>
+                  <OrderStatusBadge status={order.status} />
+                </div>
+                <p className="mt-3 text-sm font-bold">{order.customer}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{order.placedAt} · {order.mobile || "No phone provided"}</p>
+                <p className="mt-1 truncate text-xs text-muted-foreground">{order.address || order.pincode || "No address provided"}</p>
+                <div className="mt-4 flex items-center justify-between border-t border-black/5 pt-3">
+                  <span className="text-sm font-black">₹{order.total.toLocaleString("en-IN")} · {order.itemCount} items</span>
+                  <Link
+                    href={`/admin/orders?status=pending&order=${encodeURIComponent(order.id)}`}
+                    className="inline-flex min-h-10 items-center gap-1 rounded-full bg-[#B4232C] px-4 text-xs font-black text-white"
+                  >
+                    Review <ArrowRight className="size-3.5" />
+                  </Link>
+                </div>
+              </article>
+            ))}
+            {!pendingOrders.length && <p className="px-3 py-8 text-center text-sm text-muted-foreground">No orders are waiting for confirmation.</p>}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[650px] text-left">
               <thead>
                 <tr className="border-b border-black/5 bg-[#FBF9F6] text-[0.65rem] font-black uppercase tracking-[0.13em] text-muted-foreground">
@@ -279,10 +303,11 @@ export default function AdminDashboard() {
               <p className="mt-2 text-sm leading-6 text-[#4D6E58]">
                 Ends{" "}
                 {new Date(activeCampaign.endsAt).toLocaleString("en-IN", {
+                  timeZone: "Asia/Kolkata",
                   dateStyle: "medium",
                   timeStyle: "short",
                 })}
-                . Live campaign status is loaded from the backend.
+                IST (GMT+5:30). Live campaign status is loaded from the backend.
               </p>
               <Link
                 href="/admin/offers"

@@ -19,12 +19,16 @@ const jwt = require('jsonwebtoken');
 const { jwtSecret } = require('../server/config/env');
 const { requireCouponAdmin } = require('../server/api/v1/coupons/coupons.middleware');
 const { ensureOrderCouponColumns, ensureOrderPaymentColumns } = require('../server/api/v1/orders/orders.schema');
+const couponService = require('../server/services/coupon.service');
+const categoriesController = require('../server/api/v1/categories/categories.controller');
 
 function response() {
   return {
     statusCode: 200,
     body: undefined,
+    headers: {},
     status(code) { this.statusCode = code; return this; },
+    set(name, value) { this.headers[name.toLowerCase()] = value; return this; },
     json(payload) { this.body = payload; return this; },
   };
 }
@@ -38,6 +42,25 @@ function dbReturning(rows) {
   } };
 }
 
+async function withDeliveryRouteMock(callback) {
+  const originalFetch = global.fetch;
+  global.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+    if (url.hostname === 'api.geoapify.com') {
+      return Response.json({ features: [{ properties: { distance: 4900 } }] });
+    }
+    if (url.hostname === 'router.project-osrm.org') {
+      return Response.json({ code: 'Ok', routes: [{ distance: 4900 }] });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    return await callback();
+  } finally {
+    global.fetch = originalFetch;
+  }
+}
+
 test('products endpoint maps database variant size, weight, price, and stock_count', async () => {
   queries.length = 0;
   currentDb = dbReturning([{ id: 'P1', name: 'Rohu', is_active: 1, variant_id: 'V1', sku: 'SKU-1', size: 'Standard', weight: '500 g', price: 349, stock_count: 12 }]);
@@ -46,7 +69,16 @@ test('products endpoint maps database variant size, weight, price, and stock_cou
   assert.equal(res.statusCode, 200);
   const variant = res.body.data[0].variants[0];
   assert.deepEqual({ size: variant.size, weight: variant.weight, price: variant.price, stock: variant.stock, stockCount: variant.stockCount, available: variant.available }, { size: 'Standard', weight: '500 g', price: 349, stock: 12, stockCount: 12, available: true });
+  assert.equal(variant.label, '500 g', 'legacy generic variant names display their actual weight');
   assert.match(queries[0], /stock_count/);
+});
+
+test('legacy Standard-prefixed variant labels use their actual stored weight', async () => {
+  currentDb = dbReturning([{ id: 'P1', name: 'Desi Mutton', is_active: 1, variant_id: 'V1', sku: 'RV-MUT-DM-1KG', size: 'Standard 500kg', weight: '1 kg', price: 998, stock_count: 5 }]);
+  const res = response();
+  await productsController.getAllProducts(request({ category: 'mutton' }), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data[0].variants[0].label, '1 kg');
 });
 
 test('products endpoint matches category slugs to display-name catalog categories', async () => {
@@ -259,10 +291,10 @@ test('customers endpoint creates an empty customer table on first access and ret
   currentDb = { execute: async (statement) => {
     const sql = typeof statement === 'string' ? statement : statement.sql;
     statements.push({ sql, args: typeof statement === 'string' ? [] : statement.args });
+    if (sql === 'PRAGMA table_info(orders)') return { rows: ['id', 'customer_id', 'firebase_uid', 'created_at'].map((name) => ({ name })) };
     if (sql.includes('COUNT(*)')) return { rows: [{ total: 0 }] };
     return { rows: [], rowsAffected: 0 };
   } };
-
   const res = response();
   await customersController.getAllCustomers(request({ limit: '25', offset: '0' }), res);
 
@@ -271,11 +303,139 @@ test('customers endpoint creates an empty customer table on first access and ret
   assert.equal(res.body.count, 0);
   assert.ok(statements.some((statement) => statement.sql.includes('CREATE TABLE IF NOT EXISTS customers')));
   assert.ok(statements.some((statement) => statement.sql.includes('CREATE TABLE IF NOT EXISTS imported_sales_parties')));
-  const countStatement = statements.find((statement) => typeof statement !== 'string' && statement.sql.includes('COUNT(*) AS total'));
-  const listStatement = statements.find((statement) => typeof statement !== 'string' && statement.sql.includes('LIMIT ? OFFSET ?'));
-  assert.match(countStatement.sql, /WITH directory AS/);
-  assert.match(listStatement.sql, /UNION ALL/);
-  assert.doesNotMatch(listStatement.sql, /address|password/i);
+  assert.ok(statements.some((statement) => (typeof statement === 'string' ? statement : statement.sql).includes('FROM customers')));
+  assert.ok(statements.some((statement) => statement.sql.includes('FROM customer_profiles')));
+  assert.ok(statements.some((statement) => statement.sql.includes('FROM imported_customers')));
+});
+
+test('catalog product and variants are created atomically and return a persistent product id', async () => {
+  const statements = [];
+  let committed = false;
+  let rolledBack = false;
+  currentDb = {
+    execute: async () => ({ rows: [] }),
+    transaction: async (mode) => {
+      assert.equal(mode, 'write');
+      return {
+        execute: async (statement) => {
+          statements.push(statement);
+          if (statement.sql.startsWith('SELECT id, product_id, sku')) return { rows: [] };
+          return { rows: [], rowsAffected: 1 };
+        },
+        commit: async () => { committed = true; },
+        rollback: async () => { rolledBack = true; },
+        close: () => {}
+      };
+    }
+  };
+  const res = response();
+  await productsController.createProduct({ ...request(), body: {
+    name: 'Future Cut', category: 'Chicken', description: '', image_url: 'https://images.example/cut.webp',
+    variants: [{ id: 'temp-1', sku: 'FUTURE-CUT-500', variant_name: '500 g', price: 225, stock_count: 7, is_available: true }]
+  } }, res);
+
+  assert.equal(res.statusCode, 201);
+  assert.match(res.body.data.id, /^PRD-[0-9a-f-]{36}$/i);
+  assert.equal(committed, true);
+  assert.equal(rolledBack, false);
+  assert.ok(statements.some((statement) => statement.sql.includes('INSERT INTO products')));
+  assert.ok(statements.some((statement) => statement.sql.includes('INSERT INTO variants')));
+  assert.ok(statements.some((statement) => statement.sql.includes('INSERT INTO catalog_categories')));
+});
+
+test('admin can create a category that is persisted in the catalog database', async () => {
+  const statements = [];
+  currentDb = { execute: async (statement) => {
+    statements.push(statement);
+    if (typeof statement === 'object' && statement.sql.includes('SELECT category_slug, category_name FROM catalog_categories')) return { rows: [] };
+    return { rows: [] };
+  } };
+  const res = response();
+  await categoriesController.createCategory({ ...request(), body: { name: 'Duck' } }, res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.data.id, 'duck');
+  assert.equal(res.body.data.name, 'Duck');
+  assert.ok(statements.some(statement => typeof statement === 'object' && statement.sql.includes('INSERT INTO catalog_categories')));
+});
+
+test('storefront categories include newly created categories before products are assigned', async () => {
+  currentDb = { execute: async (statement) => {
+    const sql = typeof statement === 'string' ? statement : statement.sql;
+    if (sql.includes('SELECT DISTINCT TRIM(category) AS category')) return { rows: [] };
+    if (sql.includes('FROM category_image_settings')) return { rows: [] };
+    if (sql.includes('FROM catalog_categories')) return { rows: [{ category_slug: 'duck', category_name: 'Duck', created_at: '2026-10-11' }] };
+    if (sql.includes('GROUP BY TRIM(category)')) return { rows: [] };
+    return { rows: [] };
+  } };
+  const res = response();
+  await categoriesController.getAllCategories(request(), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.some(category => category.id === 'duck' && category.name === 'Duck' && category.productCount === 0), true);
+  assert.equal(res.headers['cache-control'], 'no-store');
+});
+
+test('catalog write rejects missing price or stock before opening a database transaction', async () => {
+  let openedTransaction = false;
+  currentDb = { transaction: async () => { openedTransaction = true; throw new Error('should not run'); } };
+  const res = response();
+  await productsController.createProduct({ ...request(), body: {
+    name: 'Invalid Cut', category: 'Chicken',
+    variants: [{ id: 'temp-1', sku: 'INVALID-1', variant_name: '500 g', price: '', stock_count: 2 }]
+  } }, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.success, false);
+  assert.equal(openedTransaction, false);
+});
+
+test('catalog write rejects generic Standard variant labels before opening a database transaction', async () => {
+  let openedTransaction = false;
+  currentDb = { transaction: async () => { openedTransaction = true; throw new Error('should not run'); } };
+  const res = response();
+  await productsController.createProduct({ ...request(), body: {
+    name: 'Invalid Cut', category: 'Chicken',
+    variants: [{ id: 'temp-1', sku: 'INVALID-1', variant_name: 'Standard 500 g', weight: '500 g', price: 100, stock_count: 2 }]
+  } }, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.success, false);
+  assert.equal(openedTransaction, false);
+});
+
+test('catalog edits persist variant name, price, stock, and visibility in one transaction', async () => {
+  const statements = [];
+  let committed = false;
+  currentDb = {
+    execute: async (statement) => {
+      assert.match(statement.sql, /SELECT id FROM products/);
+      return { rows: [{ id: 'P1' }] };
+    },
+    transaction: async () => ({
+      execute: async (statement) => {
+        statements.push(statement);
+        if (statement.sql.startsWith('SELECT id, product_id, sku')) return { rows: [{ id: 'V1', product_id: 'P1', sku: 'CUT-500' }] };
+        return { rows: [], rowsAffected: 1 };
+      },
+      commit: async () => { committed = true; },
+      rollback: async () => {},
+      close: () => {}
+    })
+  };
+  const res = response();
+  await productsController.updateProduct({
+    ...request(), params: { id: 'P1' }, body: {
+      name: 'Updated Cut',
+      variants: [{ id: 'V1', sku: 'CUT-500', variant_name: '500 g', price: 410, stock_count: 8, is_available: false }]
+    }
+  }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(committed, true);
+  assert.ok(statements.some((statement) => statement.sql.includes('UPDATE products')));
+  const variantUpdate = statements.find((statement) => statement.sql.includes('UPDATE variants SET'));
+  assert.ok(variantUpdate);
+  assert.ok(variantUpdate.args.includes('500 g'));
+  assert.ok(variantUpdate.args.includes(410));
+  assert.ok(variantUpdate.args.includes(8));
+  assert.ok(variantUpdate.args.includes(0));
 });
 
 test('customers endpoint searches by name, customer ID or phone and reports total matches', async () => {
@@ -283,6 +443,7 @@ test('customers endpoint searches by name, customer ID or phone and reports tota
   currentDb = { execute: async (statement) => {
     const sql = typeof statement === 'string' ? statement : statement.sql;
     statements.push(statement);
+    if (sql === 'PRAGMA table_info(orders)') return { rows: ['id', 'customer_id', 'firebase_uid', 'created_at'].map((name) => ({ name })) };
     if (sql.includes('COUNT(*)')) return { rows: [{ total: 1 }] };
     if (sql.includes('SELECT customer_id')) return { rows: [{ customer_id: 'C0001', name: 'Asha Rao', phoneNo: '9876543210', created_at: '2026-10-01' }] };
     return { rows: [] };
@@ -294,11 +455,9 @@ test('customers endpoint searches by name, customer ID or phone and reports tota
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.count, 1);
   assert.equal(res.body.data[0].customer_id, 'C0001');
-  const countStatement = statements.find((statement) => typeof statement !== 'string' && statement.sql.includes('COUNT(*) AS total'));
-  const listStatement = statements.find((statement) => typeof statement !== 'string' && statement.sql.includes('LIMIT ? OFFSET ?'));
-  assert.deepEqual(countStatement.args, ['%Asha%', '%Asha%', '%Asha%']);
-  assert.deepEqual(listStatement.args, ['%Asha%', '%Asha%', '%Asha%', 10, 0]);
-  assert.match(listStatement.sql, /UNION ALL/);
+  assert.equal(res.body.data[0].name, 'Asha Rao');
+  assert.equal(res.body.data[0].phoneNo, '9876543210');
+  assert.ok(statements.some((statement) => (typeof statement === 'string' ? statement : statement.sql).includes('FROM customers')));
 });
 
 
@@ -316,7 +475,6 @@ test('coupon admin list initializes the catalog coupon schema and returns pagina
     }] };
     return { rows: [], rowsAffected: 0 };
   } };
-
   const res = response();
   await couponsController.getCoupons(request({ limit: '10', offset: '0', search: 'save' }), res);
 
@@ -325,10 +483,12 @@ test('coupon admin list initializes the catalog coupon schema and returns pagina
   assert.equal(res.body.data[0].code, 'SAVE10');
   assert.equal(res.body.data[0].discountType, 'percentage');
   assert.equal(res.body.data[0].isActive, true);
-  assert.match(statements[0].sql, /CREATE TABLE IF NOT EXISTS coupons/);
-  assert.match(statements[1].sql, /idx_coupons_active_dates/);
-  assert.match(statements[4].sql, /code LIKE \?/);
-  assert.deepEqual(statements[4].args, ['%save%', '%save%', 10, 0]);
+  assert.ok(statements.some((s) => /CREATE TABLE IF NOT EXISTS coupons/.test(s.sql)));
+  assert.ok(statements.some((s) => /idx_coupons_active_dates/.test(s.sql)));
+  const selectQuery = statements.find((s) => s.sql.includes('SELECT * FROM coupons'));
+  assert.ok(selectQuery);
+  assert.match(selectQuery.sql, /code LIKE \?/);
+  assert.deepEqual(selectQuery.args, ['%save%', '%save%', 10, 0]);
 });
 
 test('coupon creation normalizes codes and persists validated discount rules', async () => {
@@ -416,8 +576,10 @@ test('storefront coupon feed returns only coupons currently active and within th
   await couponsController.getActiveCoupons(request(), res);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data[0].code, 'LIVE10');
-  assert.match(statements[3], /datetime\(starts_at\) <= datetime\('now'\)/);
-  assert.match(statements[3], /usage_count < usage_limit/);
+  const selectQuery = statements.find((s) => s.startsWith('SELECT id, code'));
+  assert.ok(selectQuery);
+  assert.match(selectQuery, /datetime\(starts_at\) <= datetime\('now'\)/);
+  assert.match(selectQuery, /usage_count < usage_limit/);
 });
 
 test('coupon management middleware rejects missing/non-admin sessions and accepts an admin JWT', () => {
@@ -475,6 +637,12 @@ test('coupon preview validates against live catalog prices and returns the disco
     const sql = typeof statement === 'string' ? statement : statement.sql;
     statements.push(statement);
     if (sql.includes('FROM products p')) return { rows: [{ product_name: 'Rohu', sku: 'ROHU-1', size: 'Standard', weight: '1 kg', price: 100 }] };
+    if (sql.includes('SELECT setting_key, setting_value FROM delivery_pricing_settings')) return { rows: [
+      { setting_key: 'origin_address', setting_value: 'RedVeg, Kolkata' },
+      { setting_key: 'rate_per_km', setting_value: '10' },
+      { setting_key: 'origin_latitude', setting_value: '22.634926' },
+      { setting_key: 'origin_longitude', setting_value: '88.4076512' },
+    ] };
     if (sql.startsWith('SELECT * FROM coupons WHERE code')) return { rows: [{
       id: 'cpn-live', code: 'SAVE10', is_active: 1, discount_type: 'percentage', discount_value: 10,
       max_discount_amount: null, min_order_amount: 100,
@@ -483,9 +651,14 @@ test('coupon preview validates against live catalog prices and returns the disco
     }] };
     return { rows: [], rowsAffected: 0 };
   } };
+  currentDbs = { availablePincodes: { execute: async () => ({ rows: [{ is_serviceable: 1 }] }) } };
 
   const res = response();
-  await couponsController.validateCoupon({ body: { code: 'save10', cartItems: [{ productId: 'P1', variantId: 'V1', quantity: 2 }] } }, res);
+  await withDeliveryRouteMock(() => couponsController.validateCoupon({ body: {
+    code: 'save10',
+    cartItems: [{ productId: 'P1', variantId: 'V1', quantity: 2 }],
+    destination: { pincode: '700065', latitude: 22.64, longitude: 88.42 },
+  } }, res));
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.coupon.code, 'SAVE10');
@@ -495,6 +668,73 @@ test('coupon preview validates against live catalog prices and returns the disco
   assert.equal(res.body.data.totalAmount, 229);
   assert.ok(statements.some((statement) => typeof statement !== 'string' && statement.sql.includes('FROM products p')));
   assert.ok(statements.some((statement) => typeof statement !== 'string' && statement.sql.includes('WHERE code = ? COLLATE NOCASE')));
+  currentDbs = {};
+});
+
+test('a customer who already redeemed a coupon is rejected by the live coupon validator', async () => {
+  const now = Date.now();
+  const coupon = {
+    id: 'cpn-once', code: 'ONCE10', is_active: 1, discount_type: 'percentage', discount_value: 10,
+    max_discount_amount: null, min_order_amount: 0,
+    starts_at: new Date(now - 60_000).toISOString(), ends_at: new Date(now + 86_400_000).toISOString(),
+    usage_limit: null, usage_count: 1,
+  };
+  const db = { execute: async (statement) => {
+    const sql = typeof statement === 'string' ? statement : statement.sql;
+    if (sql.startsWith('SELECT * FROM coupons WHERE code')) return { rows: [coupon] };
+    if (sql.includes('FROM coupon_redemptions')) return { rows: [{ order_id: 'ORD-USED' }] };
+    return { rows: [], rowsAffected: 1 };
+  } };
+  await assert.rejects(
+    couponService.findApplicableCoupon(db, 'ONCE10', 500, {
+      id: 'firebase-customer-1', key: 'firebase:firebase-customer-1', ordersDb: { execute: async () => ({ rows: [] }) },
+    }),
+    (error) => error.statusCode === 400 && /already used/i.test(error.message)
+  );
+});
+
+test('historical successful orders also prevent a repeat coupon use', async () => {
+  const now = Date.now();
+  const orderQueries = [];
+  const db = { execute: async (statement) => {
+    const sql = typeof statement === 'string' ? statement : statement.sql;
+    if (sql.startsWith('SELECT * FROM coupons WHERE code')) return { rows: [{
+      id: 'cpn-old', code: 'OLD10', is_active: 1, discount_type: 'fixed', discount_value: 10,
+      min_order_amount: 0, starts_at: new Date(now - 60_000).toISOString(),
+      ends_at: new Date(now + 86_400_000).toISOString(), usage_limit: null, usage_count: 2,
+    }] };
+    return { rows: [] };
+  } };
+  const ordersDb = { execute: async (statement) => {
+    orderQueries.push(statement);
+    return { rows: [{ id: 'ORD-OLD-USE' }] };
+  } };
+  await assert.rejects(
+    couponService.findApplicableCoupon(db, 'OLD10', 500, {
+      id: 'firebase-customer-old', key: 'firebase:firebase-customer-old', ordersDb,
+    }),
+    (error) => error.statusCode === 400 && /already used/i.test(error.message)
+  );
+  assert.match(orderQueries[0].sql, /firebase_uid = \? OR user_id = \?/);
+  assert.match(orderQueries[0].sql, /NOT IN \('cancelled', 'canceled'\)/);
+});
+
+test('concurrent coupon redemption for the same customer fails on the unique redemption constraint', async () => {
+  const statements = [];
+  const db = { execute: async (statement) => {
+    const sql = typeof statement === 'string' ? statement : statement.sql;
+    statements.push(sql);
+    if (sql.startsWith('INSERT INTO coupon_redemptions')) {
+      throw new Error('UNIQUE constraint failed: coupon_redemptions.coupon_id, coupon_redemptions.customer_key');
+    }
+    return { rows: [], rowsAffected: 1 };
+  } };
+  await assert.rejects(
+    couponService.reserveCouponUsage(db, 'cpn-once', 'firebase:firebase-customer-1', 'ORD-SECOND'),
+    (error) => error.statusCode === 409 && /already used/i.test(error.message)
+  );
+  assert.ok(statements.some((sql) => sql.includes('usage_count = usage_count + 1')));
+  assert.ok(statements.some((sql) => sql.startsWith('INSERT INTO coupon_redemptions')));
 });
 
 test('checkout re-prices the basket, reserves limited coupon use and persists the breakdown instead of trusting client discounts', async () => {
@@ -508,30 +748,52 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
     usage_limit: 1, usage_count: 0,
   };
   const orderColumns = ['id', 'user_id', 'customer_id', 'firebase_uid', 'cart_snapshot', 'total_amount', 'customer_name', 'customer_phone', 'customer_address', 'status', 'is_archived', 'created_at', 'order_date', 'coupon_id', 'coupon_code', 'subtotal_amount', 'discount_amount', 'delivery_fee'];
-  currentDbs = {
-    catalog: { execute: async (statement) => {
+  const executeCatalog = async (statement) => {
       const sql = typeof statement === 'string' ? statement : statement.sql;
       catalogStatements.push({ sql, args: typeof statement === 'string' ? [] : statement.args });
       if (sql.includes('FROM products p')) return { rows: [{ product_name: 'Rohu', sku: 'ROHU-1', size: 'Standard', weight: '1 kg', price: 100 }] };
+      if (sql.includes('SELECT setting_key, setting_value FROM delivery_pricing_settings')) return { rows: [
+        { setting_key: 'origin_address', setting_value: 'RedVeg, Kolkata' },
+        { setting_key: 'rate_per_km', setting_value: '10' },
+        { setting_key: 'origin_latitude', setting_value: '22.634926' },
+        { setting_key: 'origin_longitude', setting_value: '88.4076512' },
+      ] };
       if (sql.startsWith('SELECT * FROM coupons WHERE code')) return { rows: [couponRow] };
+      if (sql.includes('FROM delivery_slots WHERE id = ? AND is_active = 1')) return { rows: [{ id: 'slot-1', name: 'Slot 1', start_time: '08:10', end_time: '10:00' }] };
       if (sql.startsWith('UPDATE coupons SET usage_count = usage_count + 1')) return { rowsAffected: 1, rows: [] };
       if (sql.startsWith('UPDATE variants SET stock_count = stock_count -')) return { rowsAffected: 1, rows: [] };
       return { rows: [], rowsAffected: 1 };
-    } },
+  };
+  currentDbs = {
+    catalog: {
+      execute: executeCatalog,
+      transaction: async () => {
+        catalogStatements.push({ sql: 'BEGIN IMMEDIATE TRANSACTION', args: [] });
+        return {
+          execute: executeCatalog,
+          commit: async () => { catalogStatements.push({ sql: 'COMMIT', args: [] }); },
+          rollback: async () => { catalogStatements.push({ sql: 'ROLLBACK', args: [] }); },
+          close: async () => {},
+        };
+      },
+    },
     orders: { execute: async (statement) => {
       const sql = typeof statement === 'string' ? statement : statement.sql;
       orderStatements.push({ sql, args: typeof statement === 'string' ? [] : statement.args });
       if (sql === 'PRAGMA table_info(orders)') return { rows: orderColumns.map((name) => ({ name })) };
       return { rows: [], rowsAffected: 1 };
     } },
+    availablePincodes: { execute: async () => ({ rows: [{ is_serviceable: 1 }] }) },
   };
 
   const res = response();
-  await ordersController.createOrder({ firebaseCustomer: { uid: 'firebase-user-1' }, body: {
+  await withDeliveryRouteMock(() => ordersController.createOrder({ firebaseCustomer: { uid: 'firebase-user-1' }, body: {
     cartItems: [{ productId: 'P1', variantId: 'V1', quantity: 2 }],
     couponCode: 'save10', discountAmount: 9999,
+    deliveryDestination: { pincode: '700065', latitude: 22.64, longitude: 88.42 },
+    deliverySlotId: 'slot-1',
     customer: { name: 'Asha Rao', phoneNo: '9876543210', address: 'Kolkata' },
-  } }, res);
+  } }, res));
 
   assert.equal(res.statusCode, 201);
   assert.equal(res.body.data.subtotalAmount, 200);
@@ -547,7 +809,7 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
   assert.equal(insert.args[3], 'firebase-user-1');
   assert.match(insert.sql, /coupon_id, coupon_code, subtotal_amount,\s+discount_amount, delivery_fee, payment_status, received_amount, balance_amount/);
   assert.match(insert.sql, /'pending'/);
-  assert.deepEqual(insert.args.slice(9), ['cpn-checkout', 'SAVE10', 200, 20, 49, 229]);
+  assert.deepEqual(insert.args.slice(9), ['cpn-checkout', 'SAVE10', 200, 20, 49, 229, 4.9, 10, 'slot-1', 'Slot 1', '08:10-10:00']);
   assert.ok(catalogStatements.some((statement) => statement.sql === 'BEGIN IMMEDIATE TRANSACTION'));
   const stockUpdate = catalogStatements.find((statement) => statement.sql.startsWith('UPDATE variants SET stock_count = stock_count -'));
   assert.ok(stockUpdate);
@@ -575,15 +837,26 @@ test('admin cancellation releases the coupon usage reserved by the pending order
       if (sql.startsWith('SELECT coupon_id')) return { rows: [{ coupon_id: 'cpn-checkout' }] };
       return { rows: [], rowsAffected: 1 };
     } },
-    catalog: { execute: async (statement) => {
-      catalogStatements.push(typeof statement === 'string' ? statement : statement.sql);
-      return { rows: [], rowsAffected: 1 };
-    } },
+    catalog: {
+      execute: async (statement) => {
+        catalogStatements.push(typeof statement === 'string' ? statement : statement.sql);
+        return { rows: [], rowsAffected: 1 };
+      },
+      transaction: async () => ({
+        execute: async (statement) => {
+          catalogStatements.push(typeof statement === 'string' ? statement : statement.sql);
+          return { rows: [], rowsAffected: 1 };
+        },
+        commit: async () => {},
+        rollback: async () => {},
+      }),
+    },
   };
   const res = response();
   await ordersController.cancelOrder({ params: { id: 'ORD-1' } }, res);
   assert.equal(res.statusCode, 200);
   assert.ok(orderStatements.some((sql) => sql.startsWith('UPDATE orders SET status = \'cancelled\'')));
+  assert.ok(catalogStatements.some((sql) => sql.startsWith('DELETE FROM coupon_redemptions')));
   assert.ok(catalogStatements.some((sql) => sql.includes('usage_count - 1')));
   currentDbs = {};
 });
@@ -603,8 +876,8 @@ test('existing orders tables receive coupon breakdown columns once without distu
 
   await ensureOrderCouponColumns(db);
   await ensureOrderCouponColumns(db);
-  assert.deepEqual([...columns].filter((name) => ['coupon_id', 'coupon_code', 'subtotal_amount', 'discount_amount', 'delivery_fee'].includes(name)).sort(), ['coupon_code', 'coupon_id', 'delivery_fee', 'discount_amount', 'subtotal_amount']);
-  assert.equal(statements.filter((sql) => sql.startsWith('ALTER TABLE orders ADD COLUMN')).length, 5);
+  assert.deepEqual([...columns].filter((name) => ['coupon_id', 'coupon_code', 'subtotal_amount', 'discount_amount', 'delivery_fee', 'delivery_distance_km', 'delivery_rate_per_km'].includes(name)).sort(), ['coupon_code', 'coupon_id', 'delivery_distance_km', 'delivery_fee', 'delivery_rate_per_km', 'discount_amount', 'subtotal_amount']);
+  assert.equal(statements.filter((sql) => sql.startsWith('ALTER TABLE orders ADD COLUMN')).length, 7);
 });
 
 
@@ -690,6 +963,8 @@ test('customer directory includes report-only names without treating them as rea
   currentDb = { execute: async (statement) => {
     const sql = typeof statement === 'string' ? statement : statement.sql;
     statements.push(sql);
+    if (sql === 'PRAGMA table_info(orders)') return { rows: ['id', 'customer_id', 'firebase_uid', 'created_at'].map((name) => ({ name })) };
+    if (sql.includes('FROM imported_sales_parties')) return { rows: [{ customer_id: 'RP-REPORT-1', name: 'Report party', created_at: '2026-10-03', first_sale_date: '2026-09-01' }] };
     if (sql.includes('COUNT(*) AS total')) return { rows: [{ total: 1 }] };
     if (sql.includes('LIMIT ? OFFSET ?')) return { rows: [{
       customer_id: 'RP-REPORT-1', name: 'Report party', phoneNo: null,
@@ -705,7 +980,7 @@ test('customer directory includes report-only names without treating them as rea
   assert.equal(res.body.count, 1);
   assert.equal(res.body.data[0].recordType, 'sales_report');
   assert.equal(res.body.data[0].phoneNo, null);
-  assert.ok(statements.some((sql) => sql.includes('UNION ALL')));
+  assert.ok(statements.some((sql) => sql.includes('FROM imported_sales_parties')));
   assert.ok(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS imported_sales_parties')));
 });
 
@@ -724,6 +999,7 @@ test('customer directory returns paid, partial, unpaid and cleared/due totals fr
     customer: { execute: async (statement) => {
       const sql = typeof statement === 'string' ? statement : statement.sql;
       customerStatements.push({ sql, args: typeof statement === 'string' ? [] : statement.args });
+      if (sql.includes('FROM imported_sales_parties')) return { rows: [{ customer_id: reportPartyId, name: 'Report party', created_at: '2026-10-03', first_sale_date: '2026-09-01' }] };
       if (sql.includes('COUNT(*) AS total')) return { rows: [{ total: 1 }] };
       if (sql.includes('LIMIT ? OFFSET ?')) return { rows: [{
         customer_id: reportPartyId, name: 'Report party', phoneNo: null,
@@ -738,6 +1014,7 @@ test('customer directory returns paid, partial, unpaid and cleared/due totals fr
     orders: { execute: async (statement) => {
       const sql = typeof statement === 'string' ? statement : statement.sql;
       ordersStatements.push({ sql, args: typeof statement === 'string' ? [] : statement.args });
+      if (sql === 'PRAGMA table_info(orders)') return { rows: ['id', 'customer_id', 'firebase_uid', 'created_at'].map((name) => ({ name })) };
       if (sql.includes('FROM imported_sales_invoices')) return { rows: invoiceRows };
       return { rows: [], rowsAffected: 0 };
     } },
@@ -760,7 +1037,7 @@ test('customer directory returns paid, partial, unpaid and cleared/due totals fr
   assert.ok(customerStatements.some((statement) => statement.sql.includes('FROM customer_invoice_payment_overrides')));
   assert.ok(ordersStatements.some((statement) => statement.sql.includes('FROM imported_sales_invoices')));
   assert.ok(ordersStatements.every((statement) => !statement.sql.includes('payment_status_override')));
-  assert.ok(customerStatements.some((statement) => statement.sql.includes('UNION ALL')));
+  assert.ok(customerStatements.some((statement) => statement.sql.includes('FROM imported_sales_parties')));
   currentDbs = {};
 });
 
@@ -919,6 +1196,7 @@ test('admin can mark a confirmed order delivered without forcing unused intermed
   currentDb = { execute: async (statement) => {
     const sql = typeof statement === 'string' ? statement : statement.sql;
     statements.push({ sql, args: typeof statement === 'string' ? [] : statement.args });
+    if (sql === 'PRAGMA table_info(orders)') return { rows: ['status', 'cancellation_status'].map((name) => ({ name })) };
     if (sql.startsWith('SELECT status')) return { rows: [{ status: 'approved' }] };
     return { rowsAffected: 1, rows: [] };
   } };
@@ -926,5 +1204,7 @@ test('admin can mark a confirmed order delivered without forcing unused intermed
   await ordersController.updateOrderStatus({ params: { id: 'O-CONFIRMED' }, body: { status: 'delivered' } }, res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body.data, { id: 'O-CONFIRMED', status: 'delivered' });
-  assert.deepEqual(statements[1].args, ['delivered', 'O-CONFIRMED', 'out_for_delivery', 'approved', 'confirmed']);
+  const updateStatement = statements.find((s) => s.sql.startsWith('UPDATE orders SET status'));
+  assert.ok(updateStatement);
+  assert.deepEqual(updateStatement.args, ['delivered', 'O-CONFIRMED', 'out_for_delivery', 'approved', 'confirmed']);
 });

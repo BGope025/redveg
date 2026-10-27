@@ -45,8 +45,26 @@ async function ensureCustomerAccountSchema(db) {
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS customer_favorites (
+          firebase_uid TEXT NOT NULL,
+          product_id TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (firebase_uid, product_id)
+        )
+      `);
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS customer_active_carts (
+          firebase_uid TEXT PRIMARY KEY,
+          items_json TEXT NOT NULL,
+          item_count INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
       await db.execute('CREATE INDEX IF NOT EXISTS idx_orders_firebase_uid_created ON orders(firebase_uid, created_at)');
       await db.execute('CREATE INDEX IF NOT EXISTS idx_customer_addresses_uid ON customer_addresses(firebase_uid, created_at)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_customer_favorites_uid ON customer_favorites(firebase_uid, created_at)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_customer_active_carts_updated ON customer_active_carts(updated_at DESC)');
     })().catch((error) => {
       initializedDatabases.delete(db);
       throw error;

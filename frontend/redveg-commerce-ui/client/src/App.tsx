@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CartProvider } from "@/contexts/CartContext";
+import { WishlistProvider } from "@/contexts/WishlistContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import NotFound from "@/pages/NotFound";
 import { lazy, Suspense, useEffect } from "react";
@@ -12,12 +13,20 @@ import { CampaignProvider } from "@/contexts/CampaignContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LoginPage } from "@/pages/LoginPage";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { trackMetaEvent } from "@/lib/metaPixel";
 
 const HomePage = lazy(() => import("@/pages/storefront/HomePage"));
 const ShopPage = lazy(() => import("@/pages/storefront/ShopPage"));
+const OffersPage = lazy(() => import("@/pages/storefront/OffersPage"));
+const CampaignWhatsAppContinuePage = lazy(
+  () => import("@/pages/storefront/CampaignWhatsAppContinuePage")
+);
 const ProductPage = lazy(() => import("@/pages/storefront/ProductPage"));
 const CartPage = lazy(() => import("@/pages/storefront/CartPage"));
 const CheckoutPage = lazy(() => import("@/pages/storefront/CheckoutPage"));
+const ReturnPolicyPage = lazy(() => import("@/pages/storefront/ReturnPolicyPage"));
+const TermsAndConditionsPage = lazy(() => import("@/pages/storefront/TermsAndConditionsPage"));
+const PrivacyPolicyPage = lazy(() => import("@/pages/storefront/PrivacyPolicyPage"));
 const CustomerProfilePage = lazy(() => import("@/pages/CustomerProfilePage"));
 const AdminDashboard = lazy(() => import("@/pages/admin/AdminDashboard"));
 const AdminOrders = lazy(() => import("@/pages/admin/AdminOrders"));
@@ -25,6 +34,7 @@ const AdminCatalog = lazy(() => import("@/pages/admin/AdminCatalog"));
 const AdminOffers = lazy(() => import("@/pages/admin/AdminOffers"));
 const AdminCoupons = lazy(() => import("@/pages/admin/AdminCoupons"));
 const AdminCustomers = lazy(() => import("@/pages/admin/AdminCustomers"));
+const AdminActiveCarts = lazy(() => import("@/pages/admin/AdminActiveCarts"));
 const AdminAnalytics = lazy(() => import("@/pages/admin/AdminAnalytics"));
 const AdminModule = lazy(() => import("@/pages/admin/AdminModule"));
 const AdminHeaderTheme = lazy(() => import("@/pages/admin/AdminHeaderTheme"));
@@ -32,12 +42,21 @@ const AdminCampaignForm = lazy(() => import("@/pages/admin/AdminCampaignForm"));
 const AdminDeliveryAreas = lazy(
   () => import("@/pages/admin/AdminDeliveryAreas")
 );
+const AdminDeliverySlots = lazy(() => import("@/pages/admin/AdminDeliverySlots"));
+const AdminCategoryImages = lazy(() => import("@/pages/admin/AdminCategoryImages"));
+const AdminCategories = lazy(() => import("@/pages/admin/AdminCategories"));
 const AdminLoginPage = lazy(() => import("@/pages/admin/AdminLoginPage"));
+const AdminResetPasswordPage = lazy(() => import("@/pages/admin/AdminResetPasswordPage"));
+const AdminStaff = lazy(() => import("@/pages/admin/AdminStaff"));
+const AdminManualOrder = lazy(() => import("@/pages/admin/AdminManualOrder"));
 
 function ScrollToTop() {
   const [location] = useLocation();
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
+    if (!location.startsWith("/admin")) {
+      trackMetaEvent("PageView", { page_path: location });
+    }
   }, [location]);
   return null;
 }
@@ -64,9 +83,17 @@ function Router() {
           {/* Public routes */}
           <Route path="/" component={HomePage} />
           <Route path="/shop" component={ShopPage} />
+          <Route path="/offers" component={OffersPage} />
+          <Route
+            path="/campaign/continue"
+            component={CampaignWhatsAppContinuePage}
+          />
           <Route path="/product/:slug" component={ProductPage} />
           <Route path="/cart" component={CartPage} />
           <Route path="/checkout" component={CheckoutPage} />
+          <Route path="/return-policy" component={ReturnPolicyPage} />
+          <Route path="/terms" component={TermsAndConditionsPage} />
+          <Route path="/privacy-policy" component={PrivacyPolicyPage} />
           <Route path="/login" component={LoginPage} />
           <Route
             path="/profile"
@@ -77,13 +104,14 @@ function Router() {
             )}
           />
           <Route path="/admin/login" component={AdminLoginPage} />
+          <Route path="/admin/reset-password" component={AdminResetPasswordPage} />
           <Route path="/404" component={NotFound} />
 
           {/* PROTECTED ADMIN ROUTES */}
           <Route
             path="/admin"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="reports.finance">
                 <AdminDashboard />
               </ProtectedRoute>
             )}
@@ -91,15 +119,20 @@ function Router() {
           <Route
             path="/admin/orders"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="orders.read">
                 <AdminOrders />
               </ProtectedRoute>
             )}
           />
+          <Route path="/admin/orders/manual" component={() => (
+            <ProtectedRoute adminOnly requiredPermission="orders.manual_create">
+              <AdminManualOrder />
+            </ProtectedRoute>
+          )} />
           <Route
             path="/admin/catalog"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="catalog.read">
                 <AdminCatalog />
               </ProtectedRoute>
             )}
@@ -107,7 +140,7 @@ function Router() {
           <Route
             path="/admin/offers"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="campaigns.manage">
                 <AdminOffers />
               </ProtectedRoute>
             )}
@@ -115,7 +148,7 @@ function Router() {
           <Route
             path="/admin/coupons"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="coupons.manage">
                 <AdminCoupons />
               </ProtectedRoute>
             )}
@@ -123,23 +156,55 @@ function Router() {
           <Route
             path="/admin/delivery"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="delivery.manage">
                 <AdminDeliveryAreas />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/delivery-slots"
+            component={() => (
+              <ProtectedRoute adminOnly requiredPermission="delivery.manage">
+                <AdminDeliverySlots />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/category-images"
+            component={() => (
+              <ProtectedRoute adminOnly requiredPermission="content.manage">
+                <AdminCategoryImages />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/categories"
+            component={() => (
+              <ProtectedRoute adminOnly requiredPermission="catalog.manage">
+                <AdminCategories />
               </ProtectedRoute>
             )}
           />
           <Route
             path="/admin/customers"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="customers.read">
                 <AdminCustomers />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/customer-carts"
+            component={() => (
+              <ProtectedRoute adminOnly requiredPermission="carts.read">
+                <AdminActiveCarts />
               </ProtectedRoute>
             )}
           />
           <Route
             path="/admin/settings"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="settings.manage">
                 <AdminModule />
               </ProtectedRoute>
             )}
@@ -147,7 +212,7 @@ function Router() {
           <Route
             path="/admin/analytics"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="reports.finance">
                 <AdminAnalytics />
               </ProtectedRoute>
             )}
@@ -155,7 +220,7 @@ function Router() {
           <Route
             path="/admin/header-theme"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="settings.manage">
                 <AdminHeaderTheme />
               </ProtectedRoute>
             )}
@@ -163,12 +228,19 @@ function Router() {
           <Route
             path="/admin/campaigns/:id"
             component={() => (
-              <ProtectedRoute adminOnly>
+              <ProtectedRoute adminOnly requiredPermission="campaigns.manage">
                 <AdminCampaignForm />
               </ProtectedRoute>
             )}
           />
-
+          <Route
+            path="/admin/staff"
+            component={() => (
+              <ProtectedRoute adminOnly requiredPermission="staff.manage">
+                <AdminStaff />
+              </ProtectedRoute>
+            )}
+          />
           <Route component={NotFound} />
         </Switch>
       </Suspense>
@@ -183,15 +255,16 @@ function App() {
         <HeaderThemeProvider>
           <CampaignProvider>
             <TooltipProvider>
-              <CartProvider>
+              <AuthProvider>
                 <LocationProvider>
-                  {/* WRAP ENTIRE APP WITH AuthProvider */}
-                  <AuthProvider>
-                    <Router />
-                    <Toaster richColors position="top-center" />
-                  </AuthProvider>
+                  <CartProvider>
+                    <WishlistProvider>
+                      <Router />
+                      <Toaster richColors position="top-center" />
+                    </WishlistProvider>
+                  </CartProvider>
                 </LocationProvider>
-              </CartProvider>
+              </AuthProvider>
             </TooltipProvider>
           </CampaignProvider>
         </HeaderThemeProvider>

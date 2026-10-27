@@ -1,9 +1,13 @@
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
-import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, RefreshCw, Search, Users } from "lucide-react";
+import { AlertCircle, ChevronDown, ChevronLeft, ChevronRight, FileSpreadsheet, Pencil, RefreshCw, Search, Upload, Users } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { parseCustomerWorkbook, type ImportedCustomerRow } from "@/lib/customerWorkbook";
+import { formatISTDate } from "@/lib/dateTime";
 
 type SalesReportSummary = {
   invoiceCount: number;
@@ -21,7 +25,11 @@ type Customer = {
   phoneNo?: string | null;
   created_at?: string | null;
   first_sale_date?: string | null;
-  recordType?: "account" | "sales_report";
+  recordType?: "account" | "sales_report" | "firebase" | "imported";
+  address?: string | null;
+  locality?: string | null;
+  pincode?: string | null;
+  notes?: string | null;
   salesReport?: SalesReportSummary | null;
 };
 
@@ -58,11 +66,7 @@ const EMPTY_SALES_REPORT: SalesReportSummary = {
 };
 
 function formatDate(value?: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
+  return formatISTDate(value);
 }
 
 function formatINR(value?: number | null) {
@@ -94,6 +98,14 @@ export default function AdminCustomers() {
   const [loadingInvoicesFor, setLoadingInvoicesFor] = useState<string | null>(null);
   const [invoiceErrors, setInvoiceErrors] = useState<Record<string, string>>({});
   const [savingInvoiceKey, setSavingInvoiceKey] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [workbookRows, setWorkbookRows] = useState<ImportedCustomerRow[]>([]);
+  const [workbookName, setWorkbookName] = useState("");
+  const [readingWorkbook, setReadingWorkbook] = useState(false);
+  const [importingWorkbook, setImportingWorkbook] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerDraft, setCustomerDraft] = useState({ name: "", phone: "", address: "", locality: "", pincode: "", notes: "" });
 
   useEffect(() => {
     const controller = new AbortController();
@@ -218,8 +230,81 @@ export default function AdminCustomers() {
     }
   };
 
+  const readWorkbook = async (file?: File) => {
+    setWorkbookRows([]);
+    setWorkbookName("");
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      toast.error("Choose an .xlsx Excel workbook", { description: "Save older .xls workbooks as .xlsx in Excel first." });
+      return;
+    }
+    setReadingWorkbook(true);
+    try {
+      const rows = await parseCustomerWorkbook(file);
+      if (!rows.length) throw new Error("No customer rows were found on the first worksheet.");
+      setWorkbookRows(rows);
+      setWorkbookName(file.name);
+    } catch (parseError) {
+      toast.error("Could not read this workbook", { description: parseError instanceof Error ? parseError.message : "Check the file and try again." });
+    } finally {
+      setReadingWorkbook(false);
+    }
+  };
+
+  const submitWorkbook = async () => {
+    if (!workbookRows.length) return;
+    setImportingWorkbook(true);
+    try {
+      const response = await apiFetch("customers/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: workbookName, customers: workbookRows }),
+      }, { forceBackend: true });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) throw new Error(payload.message || "Customer import failed");
+      const summary = payload.data || {};
+      toast.success(`${Number(summary.inserted) || 0} new customers added`, {
+        description: `${Number(summary.skippedDuplicates) || 0} duplicate${Number(summary.skippedDuplicates) === 1 ? "" : "s"} skipped · ${Number(summary.rejected) || 0} invalid row${Number(summary.rejected) === 1 ? "" : "s"} skipped`,
+      });
+      setImportOpen(false);
+      setWorkbookRows([]);
+      setWorkbookName("");
+      setRefreshKey((current) => current + 1);
+    } catch (importError) {
+      toast.error("Could not import customers", { description: importError instanceof Error ? importError.message : "Please try again." });
+    } finally {
+      setImportingWorkbook(false);
+    }
+  };
+
+  const startEditingCustomer = (customer: Customer) => {
+    setCustomerDraft({ name: customer.name || "", phone: customer.phoneNo || "", address: customer.address || "", locality: customer.locality || "", pincode: customer.pincode || "", notes: customer.notes || "" });
+    setEditingCustomer(customer);
+  };
+
+  const saveImportedCustomer = async () => {
+    if (!editingCustomer) return;
+    setSavingCustomer(true);
+    try {
+      const response = await apiFetch(`customers/imported/${encodeURIComponent(editingCustomer.customer_id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customerDraft),
+      }, { forceBackend: true });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) throw new Error(payload.message || "Customer update failed");
+      setEditingCustomer(null);
+      setRefreshKey((current) => current + 1);
+      toast.success("Imported customer updated");
+    } catch (saveError) {
+      toast.error("Could not update customer", { description: saveError instanceof Error ? saveError.message : "Please try again." });
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
+
   return (
-    <AdminShell title="Customers" subtitle="Registered accounts and sales-report parties. Edit report payments per invoice; manage new store orders in Orders.">
+    <AdminShell title="Customers" subtitle="Registered accounts, imported phone customers, and sales-report parties. Firebase accounts remain separate from imported records.">
       <section className="mb-5 rounded-[1.5rem] bg-white p-5 shadow-[0_12px_34px_rgba(61,33,27,.055)] ring-1 ring-black/[0.04]">
         <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -245,6 +330,7 @@ export default function AdminCustomers() {
             <p className="mt-1 text-xs text-muted-foreground">{loading ? "Loading customer records…" : `${total.toLocaleString("en-IN")} ${total === 1 ? "directory entry" : "directory entries"}`}</p>
           </div>
           <div className="flex gap-2">
+            <Button className="h-10 shrink-0 rounded-full bg-[#B4232C] px-4 text-xs font-black text-white hover:bg-[#941D25]" onClick={() => setImportOpen(true)}><Upload className="mr-2 size-4" />Import Excel</Button>
             <label className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
               <Search className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input aria-label="Search customers" className="h-10 w-full rounded-full border border-black/10 bg-white pl-10 pr-4 text-sm outline-none transition focus:border-[#B4232C]/40 focus:ring-4 focus:ring-[#B4232C]/10" onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search name, ID or phone" value={search} />
@@ -267,7 +353,7 @@ export default function AdminCustomers() {
           <div className="flex flex-col items-center px-6 py-16 text-center">
             <span className="grid size-14 place-items-center rounded-2xl bg-[#F8E7E6] text-[#B4232C]"><Users className="size-6" /></span>
             <h3 className="mt-5 text-lg font-black">{search.trim() ? "No matching customers" : "No customers registered yet"}</h3>
-            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{search.trim() ? "Try another name, customer ID or phone number." : "Registered customer accounts and imported sales-report party names will appear here. Report-only entries do not have login accounts or contact details."}</p>
+            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{search.trim() ? "Try another name, customer ID or phone number." : "Registered accounts, Firebase logins, and imported phone customers will appear here. Use Import Excel to add new customers without replacing existing records."}</p>
           </div>
         ) : (
           <>
@@ -275,7 +361,7 @@ export default function AdminCustomers() {
               <table className="w-full min-w-[1120px] text-left">
                 <thead>
                   <tr className="border-b border-black/5 bg-[#FBF9F6] text-[0.65rem] font-black uppercase tracking-[0.13em] text-muted-foreground">
-                    <th className="px-6 py-3">Customer</th><th className="px-4 py-3">Record type</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Customer ID</th><th className="px-4 py-3">Report payment status</th><th className="px-4 py-3">Cleared / due</th><th className="px-6 py-3">Joined / first sale</th>
+                    <th className="px-6 py-3">Customer</th><th className="px-4 py-3">Record type</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Customer ID</th><th className="px-4 py-3">Report payment status</th><th className="px-4 py-3">Cleared / due</th><th className="px-6 py-3">Joined / first sale</th><th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -293,15 +379,16 @@ export default function AdminCustomers() {
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-xs font-bold"><span className={customer.recordType === "sales_report" ? "rounded-full bg-[#F8E7E6] px-2.5 py-1 text-[#8E2028]" : "rounded-full bg-[#EEF6F0] px-2.5 py-1 text-[#267345]"}>{customer.recordType === "sales_report" ? "Report only" : "Account"}</span></td>
+                        <td className="px-4 py-4 text-xs font-bold"><span className={customer.recordType === "sales_report" ? "rounded-full bg-[#F8E7E6] px-2.5 py-1 text-[#8E2028]" : customer.recordType === "imported" ? "rounded-full bg-[#FFF7E8] px-2.5 py-1 text-[#80520C]" : "rounded-full bg-[#EEF6F0] px-2.5 py-1 text-[#267345]"}>{customer.recordType === "sales_report" ? "Report only" : customer.recordType === "firebase" ? "Firebase login" : customer.recordType === "imported" ? "Phone order · imported" : "Account"}</span></td>
                         <td className="px-4 py-4 text-sm text-muted-foreground">{customer.phoneNo || (customer.recordType === "sales_report" ? "Not in report" : "—")}</td>
-                        <td className="px-4 py-4 font-mono text-xs text-muted-foreground">{customer.recordType === "sales_report" ? "No login account" : customer.customer_id}</td>
+                        <td className="px-4 py-4 font-mono text-xs text-muted-foreground">{customer.recordType === "sales_report" ? "No login account" : customer.recordType === "firebase" ? "Firebase account" : customer.customer_id}</td>
                         <td className="px-4 py-4">{customer.recordType === "sales_report" && customer.salesReport ? <div className="flex flex-wrap gap-1.5 text-[0.65rem] font-bold"><span className="rounded-full bg-[#EEF6F0] px-2 py-1 text-[#267345]">Paid {customer.salesReport.paidInvoiceCount}</span><span className="rounded-full bg-[#FFF7E8] px-2 py-1 text-[#8A5B13]">Partial {customer.salesReport.partialInvoiceCount}</span><span className="rounded-full bg-[#F8E7E6] px-2 py-1 text-[#8E2028]">Unpaid {customer.salesReport.unpaidInvoiceCount}</span></div> : "—"}</td>
                         <td className="px-4 py-4 text-xs font-semibold">{customer.recordType === "sales_report" && customer.salesReport ? <div className="space-y-1 whitespace-nowrap"><p className="text-[#267345]">Cleared {formatINR(customer.salesReport.clearedAmount)}</p><p className="text-[#8E2028]">Due {formatINR(customer.salesReport.dueAmount)}</p></div> : "—"}</td>
                         <td className="px-6 py-4 text-xs font-semibold text-muted-foreground">{formatDate(customer.recordType === "sales_report" ? customer.first_sale_date : customer.created_at)}</td>
+                        <td className="px-4 py-4">{customer.recordType === "imported" ? <Button aria-label={`Edit ${customer.name}`} className="rounded-full" onClick={() => startEditingCustomer(customer)} size="sm" variant="outline"><Pencil className="mr-1.5 size-3.5" />Edit</Button> : "—"}</td>
                       </tr>
                       {expandedCustomerId === customer.customer_id && customer.recordType === "sales_report" && (
-                        <tr className="border-b border-black/5 bg-[#FCFAF7]"><td colSpan={7} className="px-5 py-5 sm:px-6">
+                        <tr className="border-b border-black/5 bg-[#FCFAF7]"><td colSpan={8} className="px-5 py-5 sm:px-6">
                           <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-black">Invoice payment details</h3><p className="mt-1 text-xs text-muted-foreground">Update each sale separately. Cleared amount is calculated as invoice total minus due.</p></div><span className="text-[0.65rem] text-muted-foreground">Report source values can be restored at any time.</span></div>
                           {loadingInvoicesFor === customer.customer_id ? <div className="animate-pulse rounded-xl bg-[#F1ECE7] p-5 text-sm text-muted-foreground">Loading invoices…</div> : invoiceErrors[customer.customer_id] ? <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-[#7F1D1D]"><span>{invoiceErrors[customer.customer_id]}</span><Button size="sm" variant="outline" onClick={() => { void toggleInvoices(customer, true); }}>Retry</Button></div> : (invoicesByCustomer[customer.customer_id] || []).length === 0 ? <p className="rounded-xl bg-white p-5 text-sm text-muted-foreground">No invoice rows were found for this report-only entry.</p> : <div className="space-y-3">{(invoicesByCustomer[customer.customer_id] || []).map((invoice) => {
                             const key = invoiceDraftKey(customer.customer_id, invoice.invoiceNo);
@@ -336,6 +423,51 @@ export default function AdminCustomers() {
           </>
         )}
       </section>
+      <Dialog open={importOpen} onOpenChange={(open) => { if (!importingWorkbook) setImportOpen(open); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Import phone-order customers</DialogTitle>
+            <DialogDescription>Choose an .xlsx workbook. Only new customers are added; imported rows never replace existing directory records or Firebase accounts.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl bg-[#FBF9F6] p-4 text-sm leading-6 text-[#51443F]">
+              <p className="font-bold">First worksheet columns</p>
+              <p className="mt-1">Required: <strong>Name</strong> and <strong>Mobile</strong> (or Phone). Optional: Address, Locality, Pincode, Notes.</p>
+              <p className="mt-2 text-xs text-muted-foreground">Duplicate checks use the normalized 10-digit mobile number across this sheet, previous imports, registered accounts, and Firebase profiles. The workbook is read in this browser and is not stored.</p>
+            </div>
+            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-black/20 bg-white p-4 hover:border-[#B4232C]/50">
+              <FileSpreadsheet className="size-5 shrink-0 text-[#B4232C]" />
+              <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{workbookName || "Select an Excel workbook"}</span><span className="mt-1 block text-xs text-muted-foreground">.xlsx · first worksheet · up to 20 MB</span></span>
+              <input className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={readingWorkbook || importingWorkbook} onChange={(event) => { void readWorkbook(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+            </label>
+            {readingWorkbook && <p className="text-sm text-muted-foreground" role="status">Reading worksheet locally…</p>}
+            {workbookRows.length > 0 && <div className="rounded-xl border border-black/5 p-4">
+              <div className="flex items-baseline justify-between gap-3"><p className="text-sm font-black">{workbookRows.length.toLocaleString("en-IN")} rows found</p><p className="text-xs text-muted-foreground">{workbookRows.filter((row) => row.name.trim() && row.phone.replace(/\D/g, "").length >= 10).length} look ready</p></div>
+              <div className="mt-3 max-h-40 overflow-auto rounded-lg bg-[#FBF9F6]">
+                <table className="w-full text-left text-xs"><thead><tr className="text-muted-foreground"><th className="px-3 py-2">Row</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Mobile</th></tr></thead><tbody>{workbookRows.slice(0, 8).map((row) => <tr key={row.rowNumber} className="border-t border-black/5"><td className="px-3 py-2">{row.rowNumber}</td><td className="px-3 py-2 font-semibold">{row.name || "—"}</td><td className="px-3 py-2">{row.phone || "—"}</td></tr>)}</tbody></table>
+              </div>
+              {workbookRows.length > 8 && <p className="mt-2 text-[0.7rem] text-muted-foreground">Showing first 8 rows. All {workbookRows.length} rows will be processed.</p>}
+            </div>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-full" disabled={importingWorkbook} onClick={() => setImportOpen(false)}>Cancel</Button>
+            <Button className="rounded-full bg-[#B4232C] text-white hover:bg-[#941D25]" disabled={!workbookRows.length || readingWorkbook || importingWorkbook} onClick={() => void submitWorkbook()}>{importingWorkbook ? "Importing…" : `Add ${workbookRows.length || "new"} customers`}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editingCustomer)} onOpenChange={(open) => { if (!savingCustomer && !open) setEditingCustomer(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl">
+          <DialogHeader><DialogTitle>Edit imported customer</DialogTitle><DialogDescription>This updates only the phone-order customer record. Firebase login profiles are kept separately.</DialogDescription></DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {([
+              ["name", "Customer name", true], ["phone", "Mobile number", true], ["address", "Address", false],
+              ["locality", "Locality", false], ["pincode", "Pincode", false], ["notes", "Notes", false],
+            ] as const).map(([key, label, required]) => <label key={key} className={`text-xs font-bold ${key === "address" || key === "notes" ? "sm:col-span-2" : ""}`}>{label}{required ? " *" : ""}<Input className="mt-1 rounded-lg" value={customerDraft[key]} onChange={(event) => setCustomerDraft((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
+          </div>
+          <DialogFooter><Button variant="outline" className="rounded-full" disabled={savingCustomer} onClick={() => setEditingCustomer(null)}>Cancel</Button><Button className="rounded-full bg-[#17110F] text-white" disabled={savingCustomer} onClick={() => void saveImportedCustomer()}>{savingCustomer ? "Saving…" : "Save customer"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminShell>
   );
 }

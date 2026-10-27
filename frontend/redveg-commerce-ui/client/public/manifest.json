@@ -1,0 +1,20 @@
+{
+  "name": "RedVeg | Fresh Meat, Fish & Seafood in Kolkata",
+  "short_name": "RedVeg",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffdfb",
+  "theme_color": "#B4232C",
+  "icons": [
+    {
+      "src": "/redveg-app-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

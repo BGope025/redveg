@@ -9,6 +9,7 @@ const {
   availablePincodesDbAuthToken
 } = require('./env');
 const path = require('path');
+const { ensureVariantPieceSizeSchema } = require('../api/v1/variants/variants.schema');
 
 const TURSO_RETRY_ATTEMPTS = Math.max(1, Number(process.env.TURSO_RETRY_ATTEMPTS || 3));
 const TURSO_REQUEST_TIMEOUT_MS = Math.max(1000, Number(process.env.TURSO_REQUEST_TIMEOUT_MS || 15000));
@@ -70,6 +71,7 @@ let catalogDb = null;
 let ordersDb = null;
 let customerDb = null;
 let availablePincodesDb = null;
+let catalogSchemaReady = null;
 
 /**
  * Initialize database connections
@@ -281,6 +283,18 @@ async function migrateCatalogCategories() {
     console.warn('[turso] catalog category migration skipped:', error.message);
   }
   try {
+    const normalizedVariants = await catalogDb.execute(`UPDATE variants
+            SET size = TRIM(weight), updated_at = CURRENT_TIMESTAMP
+            WHERE (LOWER(TRIM(size)) = 'standard'
+               OR LOWER(TRIM(size)) LIKE 'standard %')
+              AND weight IS NOT NULL
+              AND TRIM(weight) <> ''
+              AND LOWER(TRIM(weight)) NOT IN ('standard', 'new size', 'new variant', 'undefined', 'null')`);
+    console.log(`[turso] generic catalog variant names normalized: ${normalizedVariants.rowsAffected || 0}`);
+  } catch (error) {
+    console.warn('[turso] catalog variant-name cleanup skipped:', error.message);
+  }
+  try {
     await catalogDb.execute("UPDATE products SET image_url = NULL WHERE LOWER(TRIM(image_url)) LIKE 'https://example.com/%'");
     console.log('[turso] catalog image cleanup complete: invalid example.com URLs cleared');
   } catch (error) {
@@ -306,6 +320,28 @@ const getDatabaseConnection = async (dbName) => {
       if (!catalogDb) {
         throw new Error('Catalog database not initialized');
       }
+      if (!catalogSchemaReady) {
+        catalogSchemaReady = (async () => {
+          const columns = await catalogDb.execute("PRAGMA table_info('variants')");
+          if (!(columns.rows || []).some((column) => column.name === 'is_available')) {
+            try {
+              await catalogDb.execute(
+                'ALTER TABLE variants ADD COLUMN is_available INTEGER NOT NULL DEFAULT 1 CHECK (is_available IN (0, 1))'
+              );
+              console.log('[turso] catalog migration complete: variants.is_available');
+            } catch (error) {
+              // Another app process may have completed the same migration after the PRAGMA.
+              const refreshedColumns = await catalogDb.execute("PRAGMA table_info('variants')");
+              if (!(refreshedColumns.rows || []).some((column) => column.name === 'is_available')) throw error;
+            }
+          }
+          await ensureVariantPieceSizeSchema(catalogDb);
+        })().catch((error) => {
+          catalogSchemaReady = null;
+          throw error;
+        });
+      }
+      await catalogSchemaReady;
       return catalogDb;
     case 'orders':
       if (!ordersDb) {

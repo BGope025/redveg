@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { Streamdown } from 'streamdown';
 
@@ -18,7 +17,6 @@ export default function Home() {
         Example Page
         {/* Example: Streamdown for markdown rendering */}
         <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
       </main>
     </div>
   );

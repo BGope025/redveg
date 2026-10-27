@@ -3,6 +3,7 @@ const router = express.Router();
 const { protect, authorize } = require('../../../middleware/auth.middleware');
 const {
   getCampaigns,
+  getStorefrontOffers,
   getCampaignById,
   createCampaign,
   updateCampaign,
@@ -12,6 +13,7 @@ const {
 
 // Public routes
 router.get('/', getCampaigns); // Get campaigns with filtering
+router.get('/storefront', getStorefrontOffers); // Public, active offers for the customer storefront
 router.get('/active', resolveActiveCampaign); // Get active campaign based on time/location/device
 router.get('/:id', getCampaignById); // Get specific campaign by ID
 

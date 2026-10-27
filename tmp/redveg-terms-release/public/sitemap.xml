@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://redveg.in/</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/shop</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/offers</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/shop?category=chicken</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/shop?category=mutton</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/shop?category=fish</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/shop?category=hilsa</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/shop?category=prawns</loc>
+  </url>
+  <url>
+    <loc>https://redveg.in/shop?category=crabs-seafood</loc>
+  </url>
+</urlset>

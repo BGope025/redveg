@@ -12,7 +12,7 @@ const initializeJobs = () => {
       logger.info('Starting archive job for orders older than 30 days');
       runArchiveJob();
     }, {
-      timezone: 'UTC'
+      timezone: 'Asia/Kolkata'
     });
 
     logger.info('Scheduled jobs initialized successfully');

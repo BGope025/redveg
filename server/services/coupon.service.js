@@ -16,7 +16,31 @@ function calculateDeliveryFee(subtotal) {
   return subtotal > 0 && subtotal < 799 ? 49 : 0;
 }
 
-async function findApplicableCoupon(db, code, subtotal) {
+async function hasCustomerRedeemedCoupon(db, coupon, customerKey, customerId, ordersDb) {
+  await ensureCouponSchema(db);
+  const redemption = await db.execute({
+    sql: 'SELECT order_id FROM coupon_redemptions WHERE coupon_id = ? AND customer_key = ? LIMIT 1',
+    args: [String(coupon.id), customerKey],
+  });
+  if (redemption.rows.length) return true;
+  if (!ordersDb || !customerId) return false;
+
+  const isFirebaseIdentity = customerKey.startsWith('firebase:');
+  const identityPredicate = isFirebaseIdentity
+    ? '(firebase_uid = ? OR user_id = ?)'
+    : '(customer_id = ? OR user_id = ?)';
+  const previousOrder = await ordersDb.execute({
+    sql: `SELECT id FROM orders
+          WHERE (coupon_id = ? OR UPPER(TRIM(COALESCE(coupon_code, ''))) = ?)
+            AND ${identityPredicate}
+            AND LOWER(TRIM(COALESCE(status, ''))) NOT IN ('cancelled', 'canceled')
+          LIMIT 1`,
+    args: [String(coupon.id), String(coupon.code).toUpperCase(), customerId, customerId],
+  });
+  return previousOrder.rows.length > 0;
+}
+
+async function findApplicableCoupon(db, code, subtotal, customer = null, policyOverride = null) {
   await ensureCouponSchema(db);
   const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : '';
   if (!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(normalizedCode)) {
@@ -45,6 +69,15 @@ async function findApplicableCoupon(db, code, subtotal) {
   if (coupon.usage_limit != null && Number(coupon.usage_count) >= Number(coupon.usage_limit)) {
     throw new CouponValidationError('This coupon has reached its usage limit.');
   }
+  if (customer?.key && await hasCustomerRedeemedCoupon(
+    db,
+    coupon,
+    customer.key,
+    customer.id,
+    customer.ordersDb
+  )) {
+    throw new CouponValidationError('You have already used this coupon. Each customer can use it once.');
+  }
   const minimum = Number(coupon.min_order_amount) || 0;
   if (normalizedSubtotal < minimum) {
     throw new CouponValidationError(`Add ₹${roundMoney(minimum - normalizedSubtotal).toLocaleString('en-IN')} more to use this coupon.`);
@@ -71,23 +104,42 @@ async function findApplicableCoupon(db, code, subtotal) {
   };
 }
 
-async function reserveCouponUsage(db, couponId) {
+async function reserveCouponUsage(db, couponId, customerKey, orderId) {
   const result = await db.execute({
     sql: `UPDATE coupons
           SET usage_count = usage_count + 1, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
             AND is_active = 1
-            AND datetime(starts_at) <= datetime('now')
-            AND datetime(ends_at) > datetime('now')
+            AND julianday(starts_at) <= julianday('now')
+            AND julianday(ends_at) > julianday('now')
             AND (usage_limit IS NULL OR usage_count < usage_limit)`,
     args: [couponId],
   });
   if (!result.rowsAffected) {
     throw new CouponValidationError('This coupon is no longer available. Please review your basket.', 409);
   }
+  if (customerKey && orderId) {
+    try {
+      await db.execute({
+        sql: 'INSERT INTO coupon_redemptions (coupon_id, customer_key, order_id) VALUES (?, ?, ?)',
+        args: [couponId, customerKey, orderId],
+      });
+    } catch (error) {
+      if (/unique constraint failed: coupon_redemptions\.(coupon_id|order_id)/i.test(String(error.message))) {
+        throw new CouponValidationError('You have already used this coupon. Each customer can use it once.', 409);
+      }
+      throw error;
+    }
+  }
 }
 
-async function releaseCouponUsage(db, couponId) {
+async function releaseCouponUsage(db, couponId, orderId = null) {
+  if (orderId) {
+    await db.execute({
+      sql: 'DELETE FROM coupon_redemptions WHERE coupon_id = ? AND order_id = ?',
+      args: [couponId, orderId],
+    });
+  }
   await db.execute({
     sql: 'UPDATE coupons SET usage_count = CASE WHEN usage_count > 0 THEN usage_count - 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     args: [couponId],
@@ -99,6 +151,7 @@ module.exports = {
   roundMoney,
   calculateDeliveryFee,
   findApplicableCoupon,
+  hasCustomerRedeemedCoupon,
   reserveCouponUsage,
   releaseCouponUsage,
 };

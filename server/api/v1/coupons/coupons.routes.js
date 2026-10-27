@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { requireCouponAdmin } = require('./coupons.middleware');
+const { protect, authorize } = require('../../../middleware/auth.middleware');
+const { optionalFirebaseCustomer } = require('../../../middleware/firebase-customer-auth.middleware');
 const {
   getCoupons,
   getActiveCoupons,
@@ -11,11 +12,11 @@ const {
 } = require('./coupons.controller');
 
 // Storefront-safe feed: only active, in-date coupons with remaining usage.
-router.post('/validate', validateCoupon);
+router.post('/validate', optionalFirebaseCustomer, validateCoupon);
 router.get('/active', getActiveCoupons);
 
-// All coupon management is restricted to admins.
-router.use(requireCouponAdmin);
+// Management uses the central live staff-session and permission checks.
+router.use(protect, authorize('admin'));
 router.get('/', getCoupons);
 router.post('/', createCoupon);
 router.patch('/:id', updateCoupon);
