@@ -18,6 +18,20 @@ Backend for RedVeg e-commerce platform for raw fish, poultry, and meat.
 - Server sleep mitigation with health check endpoint
 - JWT-based authentication
 - Rate limiting for abuse prevention
+- **New Features:**
+  - Customer cart management system
+  - Staff admin endpoints and management
+  - Business policy management system
+  - Delivery fees and delivery slots API
+  - Password reset functionality
+  - Product reviews system with schema management
+  - SEO management controllers
+  - Manual order processing and tracking
+  - Admin security service enhancements
+  - Delivery fee service integration
+  - Email service for notifications
+  - Razorpay payment service support
+  - Enhanced delivery location management
 
 ## Project Structure
 
@@ -49,6 +63,13 @@ RedVeg-Backend/
 │   ├── catalog-db/
 │   └── orders-db/
 └── scripts/
+    ├── push-available-pincodes.js
+    ├── push-catalog.js
+    ├── push-orders.js
+    ├── repair-kolkata-import-availability.js
+    ├── sync-kolkata-delivery-locations.js
+    ├── sync-scribd-kolkata-pincodes.js
+    └── update-pincode-coordinates.js
 ```
 
 ## Setup
@@ -91,6 +112,7 @@ In GoDaddy's app settings, configure the backend secrets from the Environment Va
 ### Authentication
 - POST `/api/v1/auth/login` - Admin login
 - POST `/api/v1/auth/logout` - Admin logout
+- POST `/api/v1/auth/password-reset` - Password reset (Admin)
 
 ### Products
 - GET `/api/v1/products` - Get all products
@@ -131,6 +153,12 @@ In GoDaddy's app settings, configure the backend secrets from the Environment Va
 - `CLOUDINARY_API_SECRET` - Cloudinary API secret
 - `JWT_SECRET` - Secret for JWT token signing
 - `PORT` - Server port (default: 3000)
+- `CORS_ORIGIN` - CORS origin (default: *)
+- `ADMIN_WHATSAPP_NUMBER` - Admin WhatsApp number for order notifications
+- `ARCHIVE_CRON_TIME` - Cron time for archiving job (default: "0 0 * * *")
+- `MAX_FILE_SIZE_MB` - Maximum file upload size in MB (default: 5)
+- `SALT_ROUNDS` - Bcrypt salt rounds (default: 10)
+- `JWT_EXPIRES_IN` - JWT expiration time (default: "24h")
 - `CORS_ORIGIN` - CORS origin (default: *)
 - `ADMIN_WHATSAPP_NUMBER` - Admin WhatsApp number for order notifications
 - `ARCHIVE_CRON_TIME` - Cron time for archiving job (default: "0 0 * * *")
