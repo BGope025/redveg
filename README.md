@@ -1,4 +1,4 @@
-# RedVeg Backend
+# RedVeg E-commerce app
 
 Backend for RedVeg e-commerce platform for raw fish, poultry, and meat.
 
