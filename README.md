@@ -4,14 +4,14 @@ Backend for RedVeg e-commerce platform for raw fish, poultry, and meat.
 
 ## Tech Stack
 
-- **Backend:** Node.js, Express.js (Hosted on Render free tier)
+- **Backend:** Node.js, Express.js (Hosted on GoDaddy VPS Linux QEMU Interface)
 - **Databases:** Turso SQL (libSQL) split across TWO distinct databases
 - **Storage:** Cloudinary (via Cloudinary SDK) with Sharp for compression
-- **Frontend (Future):** Next.js on Vercel
+- **Frontend (Future):** Next.js
 
 ## Features
 
-- Hybrid WhatsApp Checkout (no payment gateway)
+- Hybrid WhatsApp Checkout (RazorPay Checkout Integrated)
 - Admin Approval & Cross-DB Saga
 - Image upload with Sharp compression to Cloudinary
 - Data retention policy (auto-archive orders older than 30 days)
