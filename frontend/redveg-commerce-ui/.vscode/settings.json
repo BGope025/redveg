@@ -1,4 +1,60 @@
 {
   "css.customData": [],
-  "css.lint.unknownAtRules": "ignore"
+  "css.lint.unknownAtRules": "ignore",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "../../.claude/hooks/pre-bash-check.sh",
+            "timeout": 3,
+            "statusMessage": "Pre-command security validation"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "../../.claude/hooks/pre-write-check.sh",
+            "timeout": 3,
+            "statusMessage": "Pre-write secret detection"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm run*)",
+      "Bash(npx *)",
+      "Read(frontend/**)",
+      "Glob(frontend/**)",
+      "Grep(frontend/**)",
+      "Task(frontend/**)",
+      "Edit(frontend/**)",
+      "Write(frontend/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(sudo *)",
+      "Bash(chmod 777 *)",
+      "Bash(curl * | *sh*)",
+      "Bash(wget * | *bash*)",
+      "Bash(nc -*)",
+      "Bash(netcat *)",
+      "Bash(telnet *)",
+      "Bash(sshpass *)",
+      "Bash(* > /dev/tcp/*)",
+      "Bash(* > /dev/udp/*)",
+      "Bash(* > /dev/*)",
+      "Write(*/.env*)",
+      "Write(*/id_rsa*)",
+      "Write(*/secrets*)",
+      "Write(*/credentials*)"
+    ]
+  }
 }

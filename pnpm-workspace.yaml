@@ -5,3 +5,7 @@ allowBuilds:
 
 packages:
   - "frontend/*"
+
+# Security: Block packages published less than 7 days ago to reduce supply-chain risk
+# See: https://pnpm.io/package.json#minimumreleaseage
+minimumReleaseAge: 7d
