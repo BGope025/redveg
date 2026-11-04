@@ -2,9 +2,6 @@ require('./loadEnv')();
 
 // Validate required environment variables
 const requiredEnvVars = [
-  'CLOUDINARY_CLOUD_NAME',
-  'CLOUDINARY_API_KEY',
-  'CLOUDINARY_API_SECRET',
   'JWT_SECRET'
 ];
 
@@ -48,12 +45,9 @@ module.exports = {
   availablePincodesDbUrl: process.env.AVAILABLE_PINCODES_DB_URL,
   availablePincodesDbAuthToken: process.env.AVAILABLE_PINCODES_DB_AUTH_TOKEN,
 
-  // Cloudinary
-  cloudinary: {
-    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-    apiKey: process.env.CLOUDINARY_API_KEY,
-    apiSecret: process.env.CLOUDINARY_API_SECRET
-  },
+  // Local VPS image storage
+  uploadsDir: process.env.UPLOADS_DIR,
+  appPublicUrl: process.env.APP_PUBLIC_URL,
 
   // JWT
   firebaseProjectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID,

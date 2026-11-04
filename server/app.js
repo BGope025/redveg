@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const apiRouter = require('./api/index');
@@ -51,15 +52,14 @@ try {
   console.warn('Some database-dependent features may not work correctly');
 }
 
-// Initialize Cloudinary with error handling
-try {
-  const { initializeCloudinary } = require('./config/cloudflare');
-  initializeCloudinary();
-  console.log('Cloudinary initialization completed');
-} catch (cloudinaryError) {
-  console.warn('Warning: Cloudinary initialization failed:', cloudinaryError.message);
-  console.warn('Image upload features may not work correctly');
-}
+// Serve admin-uploaded, content-addressed image files from persistent server storage.
+const uploadRoot = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, 'uploads'));
+app.use('/uploads', express.static(uploadRoot, {
+  fallthrough: false,
+  maxAge: '1y',
+  immutable: true,
+  setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff'),
+}));
 
 // Request logging middleware
 app.use((req, res, next) => {

@@ -13,6 +13,8 @@ dist/
 
 # Environment variables
 .env
+server/uploads/
+uploads/
 .env.*
 !.env.example
 

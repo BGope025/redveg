@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../../../middleware/auth.middleware');
-const { uploadMiddleware } = require('../../../middleware/upload.middleware');
+const { uploadMiddleware, handleUploadError } = require('../../../middleware/upload.middleware');
 const {
   uploadProductImage,
   uploadUiAsset
@@ -12,10 +12,10 @@ router.use(protect);
 router.use(authorize('admin'));
 
 // Product image upload
-router.post('/upload/products', uploadMiddleware.single('image'), uploadProductImage);
+router.post('/upload/products', uploadMiddleware.single('image'), handleUploadError, uploadProductImage);
 
 // UI asset upload (banners, logos, etc.)
-router.post('/upload/ui', uploadMiddleware.single('file'), uploadUiAsset);
+router.post('/upload/ui', uploadMiddleware.single('file'), handleUploadError, uploadUiAsset);
 
 module.exports = router;
 

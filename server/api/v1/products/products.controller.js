@@ -5,6 +5,7 @@ const { generateProductId, generateVariantId } = require('../../../utils/id-gene
 const { ensureCatalogCategorySchema, upsertCatalogCategory } = require('../categories/categories.schema');
 const { ensureProductReviewsSchema } = require('./product-reviews.schema');
 const { normalizePieceSize } = require('../variants/variants.schema');
+const { deleteLocalImageIfUnreferenced } = require('../../../services/local-image-storage.service');
 
 function slugify(text) {
   if (!text) return '';
@@ -555,7 +556,7 @@ const updateProduct = async (req, res) => {
     const db = await getDatabaseConnection('catalog');
     if (category !== undefined) await ensureCatalogCategorySchema(db);
 
-    const productResult = await db.execute({ sql: 'SELECT id FROM products WHERE id = ?', args: [id] });
+    const productResult = await db.execute({ sql: 'SELECT id, image_url FROM products WHERE id = ?', args: [id] });
     if (productResult.rows.length === 0) throw generateNotFoundError('Product not found');
 
     const hasVariants = req.body.variants !== undefined;
@@ -603,6 +604,10 @@ const updateProduct = async (req, res) => {
       await transaction.close();
     }
 
+    if (image_url !== undefined && productResult.rows[0].image_url !== (image_url?.trim() || null)) {
+      await deleteLocalImageIfUnreferenced(db, productResult.rows[0].image_url);
+    }
+
     res.status(200).json({ success: true, message: 'Product updated successfully', data: { id } });
   } catch (error) {
     if (error.type === 'not-found') return res.status(404).json({ success: false, message: error.message });
@@ -617,11 +622,12 @@ const deleteProduct = async (req, res) => {
     const { id } = req.params;
     const db = await getDatabaseConnection('catalog');
 
-    const productResult = await db.execute({ sql: 'SELECT id FROM products WHERE id = ?', args: [id] });
+    const productResult = await db.execute({ sql: 'SELECT id, image_url FROM products WHERE id = ?', args: [id] });
     if (productResult.rows.length === 0) throw generateNotFoundError('Product not found');
 
     // Hard delete or soft delete depending on what we want. The schema has ON DELETE CASCADE for variants.
     await db.execute({ sql: 'DELETE FROM products WHERE id = ?', args: [id] });
+    await deleteLocalImageIfUnreferenced(db, productResult.rows[0].image_url);
 
     res.status(200).json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {

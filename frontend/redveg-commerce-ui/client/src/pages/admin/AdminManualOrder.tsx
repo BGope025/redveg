@@ -2,6 +2,8 @@ import { AdminShell } from '@/components/admin/AdminShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { apiFetch } from '@/lib/api';
+import { calculateOrderTax } from '@/lib/orderTax';
+import { getISTDateInputValue } from '@/lib/dateTime';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
@@ -26,6 +28,7 @@ export default function AdminManualOrder() {
   const [locality, setLocality] = useState('');
   const [pincode, setPincode] = useState('');
   const [notes, setNotes] = useState('');
+  const [orderDate, setOrderDate] = useState(() => getISTDateInputValue());
   const [productId, setProductId] = useState('');
   const [variantId, setVariantId] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -114,7 +117,8 @@ export default function AdminManualOrder() {
   const deliveryFee = Number(deliveryQuote?.deliveryFee || 0);
   const couponIsCurrent = Boolean(couponQuote && couponQuote.code === couponCode.trim().toUpperCase());
   const discountAmount = couponIsCurrent ? couponQuote!.discountAmount : 0;
-  const total = couponIsCurrent ? couponQuote!.totalAmount : subtotal + deliveryFee;
+  const tax = calculateOrderTax(subtotal, discountAmount, deliveryFee);
+  const total = tax.totalAmount;
 
   const chooseCustomer = (customer: DirectoryCustomer) => {
     setSelectedCustomer(customer); setCustomers([]); setQuery(customer.name);
@@ -139,7 +143,7 @@ export default function AdminManualOrder() {
     try {
       const response = await apiFetch('orders/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         customer: selectedCustomer ? { source: selectedCustomer.source, id: selectedCustomer.id, name, phone } : { source: 'new', name, phone },
-        addressLine, locality, pincode, notes, deliverySlotId, couponCode: couponCode.trim(), paymentMethod, paymentStatus,
+        addressLine, locality, pincode, notes, orderDate, deliverySlotId, couponCode: couponCode.trim(), paymentMethod, paymentStatus,
         amountReceived: paymentStatus === 'paid' ? total : paymentStatus === 'unpaid' ? 0 : Number(amountReceived),
         paymentVerified, items: lines.map(line => ({ productId: line.productId, variantId: line.variantId, quantity: line.quantity, cuttingOption: line.cuttingOption })),
       }) }, { forceBackend: true });
@@ -159,6 +163,7 @@ export default function AdminManualOrder() {
         {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
         <section className="rounded-2xl border border-black/5 bg-white p-5 shadow-sm sm:p-6">
           <h2 className="font-black">Customer</h2>
+          <label className="mt-4 block max-w-sm space-y-2 text-sm font-bold">Customer order date<Input required type="date" max={getISTDateInputValue()} value={orderDate} onChange={event => setOrderDate(event.target.value)} /><span className="block text-xs font-normal leading-5 text-muted-foreground">Choose the date the customer placed this order. The system still records when the admin entered it.</span></label>
           <label className="mt-4 block space-y-2 text-sm font-bold">Search by name or phone<Input value={query} onChange={event => { setQuery(event.target.value); setSelectedCustomer(null); }} placeholder="Type at least 2 characters" autoComplete="off" /></label>
           {searchingCustomers && <p className="mt-2 text-xs text-muted-foreground" role="status">Searching customers…</p>}
           {customerSearchError && <p className="mt-2 text-xs text-[#B4232C]" role="alert">{customerSearchError}</p>}
@@ -192,7 +197,7 @@ export default function AdminManualOrder() {
         <label className="block space-y-2 text-sm font-bold">Payment status<select value={paymentStatus} onChange={event => { const next = event.target.value; setPaymentStatus(next); if (next !== 'paid') setPaymentVerified(false); if (next === 'unpaid') setAmountReceived('0'); }} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="unpaid">Unpaid</option><option value="partial">Partial</option><option value="paid">Paid (verification required)</option></select></label>
         {paymentStatus === 'partial' && <label className="block space-y-2 text-sm font-bold">Amount received (₹)<Input required type="number" min="0.01" max={total} step="0.01" value={amountReceived} onChange={event => setAmountReceived(event.target.value)} /></label>}
         {paymentStatus === 'paid' && <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5"><input type="checkbox" checked={paymentVerified} onChange={event => setPaymentVerified(event.target.checked)} className="mt-1 accent-[#B4232C]" />I have independently verified that the full payment was received.</label>}
-        <div className="space-y-2 border-t border-black/5 pt-4 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toLocaleString('en-IN')}</span></div>{discountAmount > 0 && <div className="flex justify-between text-green-800"><span>Coupon discount</span><span>−₹{discountAmount.toLocaleString('en-IN')}</span></div>}<div className="flex justify-between"><span>Delivery charge</span><span>{deliveryQuote ? `₹${deliveryFee.toLocaleString('en-IN')}` : 'Pending quote'}</span></div><div className="flex justify-between border-t border-black/5 pt-3 text-base font-black"><span>Estimated total</span><span>₹{total.toLocaleString('en-IN')}</span></div><p className="text-[11px] leading-4 text-muted-foreground">The backend recalculates prices, coupon, delivery and final total before saving.</p></div>
+        <div className="space-y-2 border-t border-black/5 pt-4 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>₹{subtotal.toLocaleString('en-IN')}</span></div>{discountAmount > 0 && <div className="flex justify-between text-green-800"><span>Coupon discount</span><span>−₹{discountAmount.toLocaleString('en-IN')}</span></div>}<div className="flex justify-between"><span>Delivery charge</span><span>{deliveryQuote ? `₹${deliveryFee.toLocaleString('en-IN')}` : 'Pending quote'}</span></div><div className="flex justify-between"><span>CGST · 2.5%</span><span>₹{tax.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div><div className="flex justify-between"><span>SGST · 2.5%</span><span>₹{tax.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div><div className="flex justify-between border-t border-black/5 pt-3 text-base font-black"><span>Estimated total</span><span>₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div><p className="text-[11px] leading-4 text-muted-foreground">The backend recalculates prices, coupon, delivery, CGST, SGST and final total before saving.</p></div>
         {paymentStatus === 'partial' && <p className="text-xs font-bold text-muted-foreground">Estimated balance due: ₹{Math.max(0, total - (Number(amountReceived) || 0)).toLocaleString('en-IN')}</p>}
         <Button type="submit" disabled={saving || loading || !lines.length || !deliveryQuote || couponLoading || Boolean(couponCode.trim() && !couponIsCurrent)} className="h-12 w-full rounded-full bg-[#B4232C] font-black text-white hover:bg-[#941D24]">{saving ? 'Saving order…' : 'Save manual order'}</Button>
       </aside>

@@ -14,10 +14,11 @@ const deliveryController = require('../server/api/v1/admin/delivery-locations/de
 const ordersController = require('../server/api/v1/orders/orders.controller');
 const ordersRouter = require('../server/api/v1/orders/orders.routes');
 const customersController = require('../server/api/v1/customers/customers.controller');
+const customersRouter = require('../server/api/v1/customers/customers.routes');
+const { ensureImportedCustomersSchema } = require('../server/api/v1/customers/imported-customers.schema');
 const couponsController = require('../server/api/v1/coupons/coupons.controller');
-const jwt = require('jsonwebtoken');
-const { jwtSecret } = require('../server/config/env');
-const { requireCouponAdmin } = require('../server/api/v1/coupons/coupons.middleware');
+const couponsRouter = require('../server/api/v1/coupons/coupons.routes');
+const { protect, authorize } = require('../server/middleware/auth.middleware');
 const { ensureOrderCouponColumns, ensureOrderPaymentColumns } = require('../server/api/v1/orders/orders.schema');
 const couponService = require('../server/services/coupon.service');
 const categoriesController = require('../server/api/v1/categories/categories.controller');
@@ -70,7 +71,7 @@ test('products endpoint maps database variant size, weight, price, and stock_cou
   const variant = res.body.data[0].variants[0];
   assert.deepEqual({ size: variant.size, weight: variant.weight, price: variant.price, stock: variant.stock, stockCount: variant.stockCount, available: variant.available }, { size: 'Standard', weight: '500 g', price: 349, stock: 12, stockCount: 12, available: true });
   assert.equal(variant.label, '500 g', 'legacy generic variant names display their actual weight');
-  assert.match(queries[0], /stock_count/);
+  assert.ok(queries.some((query) => /stock_count/.test(query)));
 });
 
 test('legacy Standard-prefixed variant labels use their actual stored weight', async () => {
@@ -85,14 +86,15 @@ test('products endpoint matches category slugs to display-name catalog categorie
   queries.length = 0;
   let statement;
   currentDb = { execute: async (nextStatement) => {
-    statement = nextStatement;
-    queries.push(nextStatement.sql);
+    const sql = typeof nextStatement === 'string' ? nextStatement : nextStatement.sql;
+    if (sql.includes('FROM (') && sql.includes('FROM products p')) statement = nextStatement;
+    queries.push(sql);
     return { rows: [] };
   } };
   const res = response();
   await productsController.getAllProducts(request({ category: 'deshi-fish', limit: '50' }), res);
   assert.equal(res.statusCode, 200);
-  assert.match(queries[0], /REPLACE\(TRIM\(p\.category\), ' ', '-'\)/);
+  assert.match(statement.sql, /LOWER\(REPLACE\(TRIM\(p\.category\), ' ', '-'\)\)/);
   assert.deepEqual(statement.args, ['deshi-fish', 'deshi-fish', 'deshi-fish', 50, 0]);
 });
 
@@ -258,6 +260,7 @@ test('order status endpoint advances an approved order to processing', async () 
   currentDb = { execute: async (statement) => {
     const sql = typeof statement === 'string' ? statement : statement.sql;
     statements.push(statement);
+    if (sql === 'PRAGMA table_info(orders)') return { rows: ['id', 'status', 'is_archived', 'cancellation_status'].map((name) => ({ name })) };
     if (sql.startsWith('SELECT status')) return { rows: [{ status: 'approved' }] };
     return { rowsAffected: 1, rows: [] };
   } };
@@ -265,8 +268,9 @@ test('order status endpoint advances an approved order to processing', async () 
   await ordersController.updateOrderStatus({ params: { id: 'O1' }, body: { status: 'processing' } }, res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body.data, { id: 'O1', status: 'processing' });
-  assert.match(statements[1].sql, /LOWER\(status\) IN \(\?, \?\)/);
-  assert.deepEqual(statements[1].args, ['processing', 'O1', 'approved', 'confirmed']);
+  const update = statements.find((statement) => typeof statement !== 'string' && statement.sql.startsWith('UPDATE orders SET status'));
+  assert.match(update.sql, /LOWER\(status\) IN \(\?, \?\)/);
+  assert.deepEqual(update.args, ['processing', 'O1', 'approved', 'confirmed']);
 });
 
 test('order status endpoint rejects invalid transitions without writing', async () => {
@@ -306,6 +310,76 @@ test('customers endpoint creates an empty customer table on first access and ret
   assert.ok(statements.some((statement) => (typeof statement === 'string' ? statement : statement.sql).includes('FROM customers')));
   assert.ok(statements.some((statement) => statement.sql.includes('FROM customer_profiles')));
   assert.ok(statements.some((statement) => statement.sql.includes('FROM imported_customers')));
+});
+
+test('customer Excel import merges address updates and preserves blank existing details', async () => {
+  const updates = [];
+  const inserts = [];
+  const importedCustomer = {
+    imported_customer_id: 'IMP-EXISTING', name: 'Old Name', phone_number: '2222222222',
+    normalized_phone: '2222222222', address: 'Old Street', locality: 'Old Locality', pincode: '700001', notes: 'Keep this note',
+  };
+  const executeCustomer = async (statement) => {
+    const sql = typeof statement === 'string' ? statement : statement.sql;
+    if (sql.includes('SELECT phone_no FROM customers')) return { rows: [{ phone_no: '1111111111' }] };
+    if (sql.includes('FROM imported_customers')) return { rows: [importedCustomer] };
+    if (sql.startsWith('UPDATE imported_customers SET')) { updates.push(statement); return { rowsAffected: 1, rows: [] }; }
+    if (sql.startsWith('INSERT OR IGNORE INTO imported_customers')) { inserts.push(statement); return { rowsAffected: 1, rows: [] }; }
+    if (sql === 'PRAGMA table_info(imported_customers)') return { rows: ['imported_customer_id', 'name', 'phone_number', 'normalized_phone', 'address', 'locality', 'pincode', 'notes', 'dedupe_key', 'source_file', 'created_at', 'updated_at'].map((name) => ({ name })) };
+    return { rows: [], rowsAffected: 0 };
+  };
+  currentDbs = {
+    customer: {
+      execute: executeCustomer,
+      transaction: async () => ({ execute: executeCustomer, commit: async () => {}, rollback: async () => {}, close: async () => {} }),
+    },
+    orders: { execute: async (statement) => {
+      if (statement === 'PRAGMA table_info(orders)') return { rows: ['id', 'customer_id', 'firebase_uid'].map((name) => ({ name })) };
+      if (typeof statement !== 'string' && statement.sql.includes('FROM customer_profiles')) return { rows: [] };
+      return { rows: [], rowsAffected: 0 };
+    } },
+  };
+
+  const res = response();
+  await customersController.importCustomers({ body: { fileName: 'customers.xlsx', customers: [
+    { rowNumber: 2, name: 'Updated Name', phone: '2222222222', address: 'New Street' },
+    { rowNumber: 3, name: 'New Customer', phone: '3333333333', address: 'New Address', locality: 'New Locality', pincode: '700160' },
+    { rowNumber: 4, name: 'Existing Account', phone: '1111111111' },
+  ] } }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.data.inserted, 1);
+  assert.equal(res.body.data.updated, 1);
+  assert.equal(res.body.data.skippedDuplicates, 1);
+  assert.equal(updates.length, 1);
+  assert.match(updates[0].sql, /address = COALESCE\(NULLIF\(\?, ''\), address\)/);
+  assert.match(updates[0].sql, /locality = COALESCE\(NULLIF\(\?, ''\), locality\)/);
+  assert.deepEqual(updates[0].args.slice(2, 6), ['New Street', '', '', '']);
+  assert.equal(updates[0].args[7], 'IMP-EXISTING');
+  assert.equal(inserts.length, 1);
+  currentDbs = {};
+});
+
+test('customer directory import endpoint is registered as an admin-protected POST route', () => {
+  const routeLayer = customersRouter.stack.find((layer) => layer.route?.path === '/import');
+  assert.ok(routeLayer, 'customer import endpoint should be registered');
+  assert.equal(routeLayer.route.methods.post, true);
+  assert.equal(routeLayer.route.stack.length, 3, 'route includes session protection, admin authorization, and import handler');
+});
+
+test('imported customer schema adds the address column to existing tables', async () => {
+  const statements = [];
+  const db = { execute: async (statement) => {
+    const sql = typeof statement === 'string' ? statement : statement.sql;
+    statements.push(sql);
+    if (sql === 'PRAGMA table_info(imported_customers)') {
+      return { rows: ['imported_customer_id', 'name', 'phone_number', 'normalized_phone', 'locality', 'pincode', 'notes', 'dedupe_key', 'source_file', 'created_at', 'updated_at'].map((name) => ({ name })) };
+    }
+    return { rows: [], rowsAffected: 0 };
+  } };
+
+  await ensureImportedCustomersSchema(db);
+  assert.ok(statements.includes('ALTER TABLE imported_customers ADD COLUMN address TEXT'));
 });
 
 test('catalog product and variants are created atomically and return a persistent product id', async () => {
@@ -376,7 +450,7 @@ test('storefront categories include newly created categories before products are
 
 test('catalog write rejects missing price or stock before opening a database transaction', async () => {
   let openedTransaction = false;
-  currentDb = { transaction: async () => { openedTransaction = true; throw new Error('should not run'); } };
+  currentDb = { execute: async () => ({ rows: [] }), transaction: async () => { openedTransaction = true; throw new Error('should not run'); } };
   const res = response();
   await productsController.createProduct({ ...request(), body: {
     name: 'Invalid Cut', category: 'Chicken',
@@ -389,7 +463,7 @@ test('catalog write rejects missing price or stock before opening a database tra
 
 test('catalog write rejects generic Standard variant labels before opening a database transaction', async () => {
   let openedTransaction = false;
-  currentDb = { transaction: async () => { openedTransaction = true; throw new Error('should not run'); } };
+  currentDb = { execute: async () => ({ rows: [] }), transaction: async () => { openedTransaction = true; throw new Error('should not run'); } };
   const res = response();
   await productsController.createProduct({ ...request(), body: {
     name: 'Invalid Cut', category: 'Chicken',
@@ -405,8 +479,8 @@ test('catalog edits persist variant name, price, stock, and visibility in one tr
   let committed = false;
   currentDb = {
     execute: async (statement) => {
-      assert.match(statement.sql, /SELECT id FROM products/);
-      return { rows: [{ id: 'P1' }] };
+      assert.match(statement.sql, /SELECT id, image_url FROM products/);
+      return { rows: [{ id: 'P1', image_url: 'https://images.example/old.webp' }] };
     },
     transaction: async () => ({
       execute: async (statement) => {
@@ -578,55 +652,21 @@ test('storefront coupon feed returns only coupons currently active and within th
   assert.equal(res.body.data[0].code, 'LIVE10');
   const selectQuery = statements.find((s) => s.startsWith('SELECT id, code'));
   assert.ok(selectQuery);
-  assert.match(selectQuery, /datetime\(starts_at\) <= datetime\('now'\)/);
+  assert.match(selectQuery, /julianday\(starts_at\) <= julianday\('now'\)/);
   assert.match(selectQuery, /usage_count < usage_limit/);
 });
 
-test('coupon management middleware rejects missing/non-admin sessions and accepts an admin JWT', () => {
-  const customerToken = jwt.sign({ role: 'customer' }, jwtSecret);
-  const adminToken = jwt.sign({ role: 'admin', userId: 'admin-test' }, jwtSecret);
-  const originalNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
+test('coupon management routes use the shared admin session and permission middleware', () => {
+  const stack = couponsRouter.stack;
+  const protectIndex = stack.findIndex((layer) => layer.handle === protect);
+  const adminGuard = stack[protectIndex + 1];
+  const managedRoutes = stack.filter((layer) => layer.route).map((layer) => layer.route.path);
 
-  try {
-    const missingResponse = response();
-    let missingNextCalled = false;
-    requireCouponAdmin({ headers: {}, cookies: {} }, missingResponse, () => { missingNextCalled = true; });
-    assert.equal(missingResponse.statusCode, 401);
-    assert.equal(missingNextCalled, false);
-
-    const customerResponse = response();
-    let customerNextCalled = false;
-    requireCouponAdmin({ headers: { authorization: `Bearer ${customerToken}` }, cookies: {} }, customerResponse, () => { customerNextCalled = true; });
-    assert.equal(customerResponse.statusCode, 403);
-    assert.equal(customerNextCalled, false);
-
-    const adminResponse = response();
-    let adminNextCalled = false;
-    const adminRequest = { headers: {}, cookies: { token: adminToken } };
-    requireCouponAdmin(adminRequest, adminResponse, () => { adminNextCalled = true; });
-    assert.equal(adminNextCalled, true);
-    assert.equal(adminRequest.user.role, 'admin');
-  } finally {
-    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = originalNodeEnv;
-  }
-});
-
-test('coupon middleware preserves the local-development mock admin convention', () => {
-  const originalNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'development';
-  try {
-    const res = response();
-    let nextCalled = false;
-    const req = { headers: {}, cookies: {} };
-    requireCouponAdmin(req, res, () => { nextCalled = true; });
-    assert.equal(nextCalled, true);
-    assert.equal(req.user.role, 'admin');
-  } finally {
-    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = originalNodeEnv;
-  }
+  assert.notEqual(protectIndex, -1);
+  assert.equal(adminGuard?.name, '<anonymous>');
+  assert.equal(adminGuard.handle.toString(), authorize('admin').toString());
+  assert.ok(managedRoutes.includes('/'));
+  assert.ok(managedRoutes.includes('/:id'));
 });
 
 
@@ -664,8 +704,8 @@ test('coupon preview validates against live catalog prices and returns the disco
   assert.equal(res.body.data.coupon.code, 'SAVE10');
   assert.equal(res.body.data.subtotalAmount, 200);
   assert.equal(res.body.data.discountAmount, 20);
-  assert.equal(res.body.data.deliveryFee, 49);
-  assert.equal(res.body.data.totalAmount, 229);
+  assert.equal(res.body.data.deliveryFee, 0);
+  assert.equal(res.body.data.totalAmount, 180);
   assert.ok(statements.some((statement) => typeof statement !== 'string' && statement.sql.includes('FROM products p')));
   assert.ok(statements.some((statement) => typeof statement !== 'string' && statement.sql.includes('WHERE code = ? COLLATE NOCASE')));
   currentDbs = {};
@@ -788,6 +828,7 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
 
   const res = response();
   await withDeliveryRouteMock(() => ordersController.createOrder({ firebaseCustomer: { uid: 'firebase-user-1' }, body: {
+    paymentMethod: 'cash',
     cartItems: [{ productId: 'P1', variantId: 'V1', quantity: 2 }],
     couponCode: 'save10', discountAmount: 9999,
     deliveryDestination: { pincode: '700065', latitude: 22.64, longitude: 88.42 },
@@ -795,7 +836,7 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
     customer: { name: 'Asha Rao', phoneNo: '9876543210', address: 'Kolkata' },
   } }, res));
 
-  assert.equal(res.statusCode, 201);
+  assert.equal(res.statusCode, 201, JSON.stringify(res.body));
   assert.equal(res.body.data.subtotalAmount, 200);
   assert.equal(res.body.data.discountAmount, 20);
   assert.equal(res.body.data.deliveryFee, 49);
@@ -807,9 +848,10 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
   assert.match(insert.sql, /customer_id, firebase_uid, cart_snapshot/);
   assert.equal(insert.args[2], null);
   assert.equal(insert.args[3], 'firebase-user-1');
-  assert.match(insert.sql, /coupon_id, coupon_code, subtotal_amount,\s+discount_amount, delivery_fee, payment_status, received_amount, balance_amount/);
+  assert.match(insert.sql, /coupon_id, coupon_code, subtotal_amount, payment_method,\s+discount_amount, delivery_fee, payment_status, received_amount, balance_amount/);
   assert.match(insert.sql, /'pending'/);
-  assert.deepEqual(insert.args.slice(9), ['cpn-checkout', 'SAVE10', 200, 20, 49, 229, 4.9, 10, 'slot-1', 'Slot 1', '08:10-10:00']);
+  assert.deepEqual(insert.args.slice(9, 16), ['cpn-checkout', 'SAVE10', 200, 'cash', 20, 49, 229]);
+  assert.deepEqual(insert.args.slice(-3), ['slot-1', 'Slot 1', '08:10-10:00']);
   assert.ok(catalogStatements.some((statement) => statement.sql === 'BEGIN IMMEDIATE TRANSACTION'));
   const stockUpdate = catalogStatements.find((statement) => statement.sql.startsWith('UPDATE variants SET stock_count = stock_count -'));
   assert.ok(stockUpdate);
@@ -820,7 +862,7 @@ test('checkout re-prices the basket, reserves limited coupon use and persists th
   assert.match(res.body.data.whatsappMessage, /\*Phone:\* 9876543210/);
   assert.match(res.body.data.whatsappMessage, /Rohu.*Standard \/ 1 kg × 2 @ ₹100\.00 = ₹200\.00/);
   assert.ok(res.body.data.whatsappMessage.includes('*Coupon (SAVE10):* −₹20.00'));
-  assert.match(res.body.data.whatsappMessage, /Please confirm this order and payment with me on WhatsApp/);
+  assert.match(res.body.data.whatsappMessage, /Please confirm this order on WhatsApp/);
   assert.doesNotMatch(res.body.data.whatsappMessage, /^https:\/\//);
   currentDbs = {};
 });
@@ -1177,8 +1219,9 @@ test('existing order tables receive payment columns once and backfill outstandin
 
   await ensureOrderPaymentColumns(db);
   await ensureOrderPaymentColumns(db);
-  assert.deepEqual(['payment_status', 'received_amount', 'balance_amount', 'payment_updated_at', 'payment_updated_by'].filter((name) => columns.has(name)), ['payment_status', 'received_amount', 'balance_amount', 'payment_updated_at', 'payment_updated_by']);
-  assert.equal(statements.filter((sql) => sql.startsWith('ALTER TABLE orders ADD COLUMN')).length, 5);
+  const paymentColumns = ['payment_status', 'payment_method', 'received_amount', 'balance_amount', 'payment_updated_at', 'payment_updated_by', 'gateway_payment_link_id', 'gateway_payment_id', 'razorpay_order_id'];
+  assert.deepEqual(paymentColumns.filter((name) => columns.has(name)), paymentColumns);
+  assert.equal(statements.filter((sql) => sql.startsWith('ALTER TABLE orders ADD COLUMN')).length, paymentColumns.length);
   assert.ok(statements.some((sql) => sql.includes("SET payment_status = 'unpaid'")));
   assert.ok(statements.some((sql) => sql.includes('SET balance_amount = MAX')));
 });

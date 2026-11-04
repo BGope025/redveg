@@ -70,6 +70,8 @@ export interface Order {
   subtotal?: number;
   discountAmount?: number;
   deliveryFee?: number;
+  cgstAmount?: number;
+  sgstAmount?: number;
   deliveryDistanceKm?: number;
   deliveryRatePerKm?: number;
   deliverySlotName?: string | null;

@@ -7,7 +7,7 @@ import { ChevronDown, Download, MapPin, MessageCircle, Phone, ReceiptText, Searc
 import { useEffect, useState, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
-import { formatISTDateTime, getISTDateInputValue } from "@/lib/dateTime";
+import { formatISTDate, formatISTDateTime, getISTDateInputValue } from "@/lib/dateTime";
 
 const statuses: OrderStatus[] = ["New", "Confirmed", "Processing", "Out for Delivery", "Delivered", "Cancelled"];
 const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
@@ -19,6 +19,7 @@ const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
   Cancelled: [],
 };
 type PaymentStatus = "Paid" | "Partial" | "Unpaid";
+const formatOrderPlacedAt = (order: Order) => order.source === "Admin Manual" ? formatISTDate(order.placedAt) : formatISTDateTime(order.placedAt);
 
 export default function AdminOrders() {
   const initialStatusFilter = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("status") === "pending" ? "New" : "All";
@@ -29,6 +30,7 @@ export default function AdminOrders() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const hasLoadedOrders = useRef(false);
+  const linkedOrderLoaded = useRef<string | null>(null);
   const [paymentStatusDraft, setPaymentStatusDraft] = useState<PaymentStatus>("Unpaid");
   const [paymentReceivedDraft, setPaymentReceivedDraft] = useState("0");
   const [savingPayment, setSavingPayment] = useState(false);
@@ -64,11 +66,32 @@ export default function AdminOrders() {
         const rows = payload.data || payload;
         const normalizedOrders = Array.isArray(rows) ? rows.map(normalizeOrder) : [];
         if (cancelled) return;
-        setOrders(normalizedOrders);
-        setSelected(current => current ? normalizedOrders.find(order => order.id === current.id) ?? current : current);
         const requestedOrderId = !search.trim() && typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("order") : null;
-        if (requestedOrderId && !selected) {
-          setSelected(normalizedOrders.find((order) => order.id === requestedOrderId) ?? null);
+        setOrders(current => {
+          const linkedOrder = requestedOrderId ? current.find(order => order.id === requestedOrderId) : undefined;
+          return linkedOrder && !normalizedOrders.some(order => order.id === linkedOrder.id)
+            ? [linkedOrder, ...normalizedOrders]
+            : normalizedOrders;
+        });
+        if (requestedOrderId) {
+          const listedOrder = normalizedOrders.find(order => order.id === requestedOrderId);
+          if (listedOrder) {
+            linkedOrderLoaded.current = requestedOrderId;
+            setSelected(listedOrder);
+          } else if (linkedOrderLoaded.current !== requestedOrderId) {
+            const detailResponse = await apiFetch(`orders/${encodeURIComponent(requestedOrderId)}`, {}, { forceBackend: true });
+            const detailPayload = await detailResponse.json().catch(() => ({}));
+            if (!detailResponse.ok || !detailPayload.success || !detailPayload.data) {
+              throw new Error(detailPayload.message || `Could not load order ${requestedOrderId}.`);
+            }
+            if (cancelled) return;
+            const linkedOrder = normalizeOrder(detailPayload.data);
+            linkedOrderLoaded.current = requestedOrderId;
+            setOrders(current => current.some(order => order.id === linkedOrder.id) ? current : [linkedOrder, ...current]);
+            setSelected(linkedOrder);
+          }
+        } else {
+          setSelected(current => current ? normalizedOrders.find(order => order.id === current.id) ?? current : current);
         }
       } catch (error) {
         if (cancelled) return;
@@ -282,7 +305,8 @@ export default function AdminOrders() {
     const paymentStatusValue = String(raw.payment_status || "unpaid").toLowerCase();
     const paymentStatus: PaymentStatus = paymentStatusValue === "paid" ? "Paid" : paymentStatusValue === "partial" ? "Partial" : "Unpaid";
     const total = Number(raw.total_amount ?? raw.total ?? 0);
-    return { id: raw.id, customer: raw.customer_name || raw.customer || "Customer", mobile: raw.customer_phone || raw.mobile || "", address: raw.customer_address || raw.address || "", pincode: raw.pincode || "", placedAt: raw.created_at || raw.order_date || "", total, subtotal: Number(raw.subtotal_amount ?? 0), discountAmount: Number(raw.discount_amount ?? 0), deliveryFee: Number(raw.delivery_fee ?? 0), deliveryDistanceKm: Number(raw.delivery_distance_km ?? 0), deliveryRatePerKm: Number(raw.delivery_rate_per_km ?? 10), deliverySlotName: raw.delivery_slot_name || null, deliverySlotTime: raw.delivery_slot_time || null, couponCode: raw.coupon_code || null, receiptNumber: raw.receipt_number || null, receiptIssuedAt: raw.receipt_issued_at || null, cancellationStatus: raw.cancellation_status || "none", cancellationRequestedAt: raw.cancellation_requested_at || null, cancellationMessage: raw.cancellation_message || null, cancellationReviewNote: raw.cancellation_review_note || null, paymentStatus, receivedAmount: Number(raw.received_amount ?? 0), dueAmount: Number(raw.balance_amount ?? total), itemCount: items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0), source: raw.order_source === "Admin Manual" ? "Admin Manual" : "WhatsApp", paymentMethod: raw.payment_method || null, customerNotes: raw.customer_notes || null, status: displayStatus, items: items.map((item: any) => ({ productId: item.productId || item.product_id, variantId: item.variantId || item.variant_id, name: item.name || item.productName || item.product_id, variant: item.variant || [item.size, item.weight, item.piece_size].filter(Boolean).join(" / ") || item.label || item.variantId, quantity: Number(item.quantity || 0), unitPrice: Number(item.price || item.unitPrice || 0) })) };
+    const source = raw.order_source === "Admin Manual" ? "Admin Manual" : "WhatsApp";
+    return { id: raw.id, customer: raw.customer_name || raw.customer || "Customer", mobile: raw.customer_phone || raw.mobile || "", address: raw.customer_address || raw.address || "", pincode: raw.pincode || "", placedAt: source === "Admin Manual" ? raw.order_date || raw.created_at || "" : raw.created_at || raw.order_date || "", total, subtotal: Number(raw.subtotal_amount ?? 0), discountAmount: Number(raw.discount_amount ?? 0), deliveryFee: Number(raw.delivery_fee ?? 0), cgstAmount: Number(raw.cgst_amount ?? 0), sgstAmount: Number(raw.sgst_amount ?? 0), deliveryDistanceKm: Number(raw.delivery_distance_km ?? 0), deliveryRatePerKm: Number(raw.delivery_rate_per_km ?? 10), deliverySlotName: raw.delivery_slot_name || null, deliverySlotTime: raw.delivery_slot_time || null, couponCode: raw.coupon_code || null, receiptNumber: raw.receipt_number || null, receiptIssuedAt: raw.receipt_issued_at || null, cancellationStatus: raw.cancellation_status || "none", cancellationRequestedAt: raw.cancellation_requested_at || null, cancellationMessage: raw.cancellation_message || null, cancellationReviewNote: raw.cancellation_review_note || null, paymentStatus, receivedAmount: Number(raw.received_amount ?? 0), dueAmount: Number(raw.balance_amount ?? total), itemCount: items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0), source, paymentMethod: raw.payment_method || null, customerNotes: raw.customer_notes || null, status: displayStatus, items: items.map((item: any) => ({ productId: item.productId || item.product_id, variantId: item.variantId || item.variant_id, name: item.name || item.productName || item.product_id, variant: item.variant || [item.size, item.weight, item.piece_size].filter(Boolean).join(" / ") || item.label || item.variantId, quantity: Number(item.quantity || 0), unitPrice: Number(item.price || item.unitPrice || 0) })) };
   }
 
   const availableAddVariants = (catalogProducts.find(product => product.id === addProductId && product.isActive)?.variants || []).filter((variant: any) => variant.isAvailable && Number(variant.stock ?? variant.stockCount ?? variant.stock_count ?? 0) > 0);
@@ -372,7 +396,7 @@ export default function AdminOrders() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-black">{order.id}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{formatISTDateTime(order.placedAt)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{formatOrderPlacedAt(order)}</p>
                     </div>
                     <OrderStatusBadge status={order.status} />
                   </div>
@@ -413,7 +437,7 @@ export default function AdminOrders() {
                     <tr key={order.id} className="border-b border-black/5 transition hover:bg-[#FCFAF7]">
                       <td className="px-4 py-4">
                         <p className="font-black">{order.id}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{formatISTDateTime(order.placedAt)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{formatOrderPlacedAt(order)}</p>
                       </td>
                       <td className="px-4 py-4">
                         <p className="text-sm font-bold">{order.customer || "Customer"}</p>
@@ -456,7 +480,7 @@ export default function AdminOrders() {
                   <div>
                     <p className="text-xs font-bold uppercase tracking-[0.15em] text-[#B4232C]">Order details</p>
                     <h2 className="mt-2 font-display text-3xl font-black">{selected.id}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">{formatISTDateTime(selected.placedAt)}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{formatOrderPlacedAt(selected)}</p>
                   </div>
                   <Button
                     variant="ghost"
@@ -529,6 +553,8 @@ export default function AdminOrders() {
   `Subtotal: ₹${Number(selected.subtotal || 0).toFixed(2)}`,
   ...(Number(selected.discountAmount || 0) > 0 ? [`Discount: −₹${Number(selected.discountAmount).toFixed(2)}`] : []),
   `Delivery: ${selected.deliveryDistanceKm ? `${selected.deliveryDistanceKm} km × ₹${selected.deliveryRatePerKm}/km = ₹${Number(selected.deliveryFee || 0).toFixed(2)}` : `₹${Number(selected.deliveryFee || 0).toFixed(2)}`}`,
+  `CGST (2.5%): ₹${Number(selected.cgstAmount || 0).toFixed(2)}`,
+  `SGST (2.5%): ₹${Number(selected.sgstAmount || 0).toFixed(2)}`,
   `Total: ₹${Number(selected.total).toFixed(2)}`,
   `Payment: ${selected.paymentStatus || "Unpaid"}`,
 ].join("\n")}
@@ -571,7 +597,7 @@ export default function AdminOrders() {
                       </div>
                     ))}
                   </div>}
-                  {(selected.subtotal ?? 0) > 0 && <div className="mb-4 space-y-2 border-t border-black/5 pt-4 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>₹{(selected.subtotal ?? 0).toLocaleString("en-IN")}</span></div>{selected.couponCode && (selected.discountAmount ?? 0) > 0 && <div className="flex justify-between font-bold text-[#267345]"><span>Coupon · {selected.couponCode}</span><span>−₹{(selected.discountAmount ?? 0).toLocaleString("en-IN")}</span></div>}<div className="flex justify-between"><span className="text-muted-foreground">Delivery{selected.deliveryDistanceKm ? ` · ${selected.deliveryDistanceKm} km × ₹${selected.deliveryRatePerKm}/km` : ""}</span><span>₹{(selected.deliveryFee ?? 0).toLocaleString("en-IN")}</span></div></div>}
+                  {(selected.subtotal ?? 0) > 0 && <div className="mb-4 space-y-2 border-t border-black/5 pt-4 text-sm"><div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>₹{(selected.subtotal ?? 0).toLocaleString("en-IN")}</span></div>{selected.couponCode && (selected.discountAmount ?? 0) > 0 && <div className="flex justify-between font-bold text-[#267345]"><span>Coupon · {selected.couponCode}</span><span>−₹{(selected.discountAmount ?? 0).toLocaleString("en-IN")}</span></div>}<div className="flex justify-between"><span className="text-muted-foreground">Delivery{selected.deliveryDistanceKm ? ` · ${selected.deliveryDistanceKm} km × ₹${selected.deliveryRatePerKm}/km` : ""}</span><span>₹{(selected.deliveryFee ?? 0).toLocaleString("en-IN")}</span></div><div className="flex justify-between"><span className="text-muted-foreground">CGST · 2.5%</span><span>₹{(selected.cgstAmount ?? 0).toLocaleString("en-IN")}</span></div><div className="flex justify-between"><span className="text-muted-foreground">SGST · 2.5%</span><span>₹{(selected.sgstAmount ?? 0).toLocaleString("en-IN")}</span></div></div>}
                   <div className="mt-5 flex justify-between border-t border-black/10 pt-4 text-lg font-black">
                     <span>Total</span>
                     <span>₹{selected.total.toLocaleString("en-IN")}</span>

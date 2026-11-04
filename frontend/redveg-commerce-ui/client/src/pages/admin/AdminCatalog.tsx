@@ -8,6 +8,7 @@ import { Edit3, ImagePlus, MoreHorizontal, Plus, Search, Upload, X, Trash2, Load
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
+import { prepareUploadImage } from "@/lib/prepareUploadImage";
 
 const PAGE_SIZE = 8;
 const DEFAULT_CATEGORY_OPTIONS = ["Chicken", "Fish", "Hilsa", "Mutton", "Prawns", "Crab", "Deshi Fish", "Rui & Katla", "Seasonal"];
@@ -338,19 +339,41 @@ export default function AdminCatalog() {
       toast.error('Choose a JPEG, PNG, or WebP image');
       return;
     }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Choose an image smaller than 5 MB');
+      return;
+    }
     const form = new FormData();
-    form.append('image', file);
     setIsUploadingImage(true);
+    let uploadedUrl: string | null = null;
     try {
+      form.append('image', await prepareUploadImage(file));
       const response = await apiFetch('media/upload/products', { method: 'POST', body: form });
       const result = await response.json().catch(() => null);
       if (!response.ok || result?.success === false || !result?.data?.url) {
         throw new Error(result?.message || `Image upload failed (HTTP ${response.status})`);
       }
-      setFormData(current => ({ ...current, image_url: result.data.url }));
-      toast.success('Product image uploaded');
+      const imageUrl = result.data.url;
+      uploadedUrl = imageUrl;
+      setFormData(current => ({ ...current, image_url: imageUrl }));
+      if (editingId) {
+        const saveResponse = await apiFetch(`admin/products/${editingId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: imageUrl }),
+        });
+        if (!saveResponse.ok) {
+          throw new Error(await getResponseError(saveResponse, 'Image uploaded but could not be saved to the product'));
+        }
+        setProducts(current => current.map(product => product.id === editingId
+          ? { ...product, image: imageUrl, imageUrl, image_url: imageUrl }
+          : product));
+        toast.success('Product image uploaded and saved');
+      } else {
+        toast.success('Image uploaded. Save the product to publish it.');
+      }
     } catch (err: any) {
-      toast.error('Image upload failed', { description: err.message });
+      toast.error(uploadedUrl ? 'Image uploaded but not saved to the product' : 'Image upload failed', { description: err.message });
     } finally {
       setIsUploadingImage(false);
       if (imageInputRef.current) imageInputRef.current.value = '';

@@ -7,6 +7,7 @@ import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation as useDeliveryLocation } from "@/contexts/LocationContext";
 import { apiFetch } from "@/lib/api";
+import { calculateOrderTax } from "@/lib/orderTax";
 import { trackMetaEvent, trackMetaPurchase } from "@/lib/metaPixel";
 import {
   AlertCircle,
@@ -41,6 +42,8 @@ type SavedOrder = {
   subtotal: number;
   discount: number;
   deliveryFee: number;
+  cgstAmount: number;
+  sgstAmount: number;
   deliveryDistanceKm: number;
   deliveryRatePerKm: number;
   couponCode: string | null;
@@ -198,7 +201,8 @@ export default function CheckoutPage() {
     : subtotal;
   const displayDiscount = quoteIsCurrent ? couponQuote!.discountAmount : 0;
   const displayDeliveryFee = checkoutDeliveryQuote?.deliveryFee ?? deliveryFee;
-  const displayTotal = displaySubtotal - displayDiscount + displayDeliveryFee;
+  const displayTax = calculateOrderTax(displaySubtotal, displayDiscount, displayDeliveryFee);
+  const displayTotal = displayTax.totalAmount;
   const couponPending = Boolean(
     couponCode && (couponValidationLoading || !quoteIsCurrent)
   );
@@ -481,6 +485,8 @@ export default function CheckoutPage() {
         subtotal: Number(saved.subtotalAmount ?? subtotal),
         discount: Number(saved.discountAmount ?? 0),
         deliveryFee: Number(saved.deliveryFee ?? 0),
+        cgstAmount: Number(saved.cgstAmount ?? 0),
+        sgstAmount: Number(saved.sgstAmount ?? 0),
         deliveryDistanceKm: Number(saved.deliveryDistanceKm ?? checkoutDeliveryQuote.distanceKm),
         deliveryRatePerKm: Number(saved.deliveryRatePerKm ?? checkoutDeliveryQuote.ratePerKm),
         couponCode: saved.couponCode || null,
@@ -585,6 +591,14 @@ export default function CheckoutPage() {
               <div className="mt-2 flex justify-between">
                 <span className="text-muted-foreground">Delivery · {savedOrder.deliveryDistanceKm} km × ₹{savedOrder.deliveryRatePerKm}/km</span>
                 <strong>₹{money(savedOrder.deliveryFee)}</strong>
+              </div>
+              <div className="mt-2 flex justify-between">
+                <span className="text-muted-foreground">CGST · 2.5%</span>
+                <strong>₹{money(savedOrder.cgstAmount)}</strong>
+              </div>
+              <div className="mt-2 flex justify-between">
+                <span className="text-muted-foreground">SGST · 2.5%</span>
+                <strong>₹{money(savedOrder.sgstAmount)}</strong>
               </div>
               <div className="mt-2 flex justify-between">
                 <span className="text-muted-foreground">Order total</span>
@@ -802,6 +816,8 @@ export default function CheckoutPage() {
                 label="Delivery"
                 value={checkoutDeliveryQuote ? `${checkoutDeliveryQuote.distanceKm} km × ₹${money(checkoutDeliveryQuote.ratePerKm)}/km · ₹${money(displayDeliveryFee)}` : checkoutDeliveryLoading ? "Calculating…" : checkoutDeliveryError || "Choose a delivery location"}
               />
+              <PriceRow label="CGST · 2.5%" value={`₹${money(displayTax.cgstAmount)}`} />
+              <PriceRow label="SGST · 2.5%" value={`₹${money(displayTax.sgstAmount)}`} />
               <div className="flex justify-between pt-2 text-lg font-black">
                 <span>Total</span>
                 <span>₹{money(displayTotal)}</span>

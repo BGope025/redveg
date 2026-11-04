@@ -305,7 +305,7 @@ export function AdminShell({
   );
 
   return (
-    <div className="min-h-screen bg-[#F5F2EE] text-[#251B18] lg:grid lg:grid-cols-[260px_1fr]">
+    <div className="min-h-screen bg-[#F5F2EE] text-[#251B18] lg:grid lg:grid-cols-[260px_minmax(0,1fr)]">
       <div className="fixed inset-y-0 left-0 z-50 hidden w-[260px] lg:block">
         {sidebar}
       </div>
@@ -319,7 +319,7 @@ export function AdminShell({
           <div className="relative h-full w-[280px]">{sidebar}</div>
         </div>
       )}
-      <div className="lg:col-start-2">
+      <div className="min-w-0 lg:col-start-2">
         <header className="sticky top-0 z-30 flex h-[72px] items-center gap-3 border-b border-black/5 bg-[#F5F2EE]/90 px-4 backdrop-blur-xl sm:px-7 lg:px-10">
           <Button
             variant="ghost"
@@ -434,7 +434,7 @@ export function AdminShell({
             </Link>
           </div>
         </header>
-        <main className="px-4 pb-24 pt-7 sm:px-7 sm:pb-24 lg:px-10 lg:pb-9 lg:pt-9">
+        <main className="min-w-0 px-4 pb-24 pt-7 sm:px-7 sm:pb-24 lg:px-10 lg:pb-9 lg:pt-9">
           <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-[#B4232C]">

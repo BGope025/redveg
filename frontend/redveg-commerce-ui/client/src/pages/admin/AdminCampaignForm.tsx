@@ -1,9 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { campaignApi } from "@/lib/campaignApi";
+import { apiFetch } from "@/lib/api";
+import { prepareUploadImage } from "@/lib/prepareUploadImage";
 import type {
   Campaign,
   CampaignOccasion,
@@ -18,6 +20,8 @@ import {
   Target,
   LayoutTemplate,
   MessageSquare,
+  Upload,
+  Loader2,
 } from "lucide-react";
 
 const REDVEG_TIME_ZONE = "Asia/Kolkata";
@@ -93,6 +97,9 @@ export default function AdminCampaignForm({
   const [formData, setFormData] = useState<Partial<Campaign>>(emptyCampaign);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState<string | null>(null);
+  const desktopImageInput = useRef<HTMLInputElement | null>(null);
+  const mobileImageInput = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const closeEditor = () => {
     if (onClose) onClose();
@@ -146,6 +153,36 @@ export default function AdminCampaignForm({
       ...prev,
       [name]: type === "number" ? Number(value) : value,
     }));
+  };
+
+  const uploadCampaignImage = async (field: "desktopImageUrl" | "mobileImageUrl", file?: File) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Choose a JPEG, PNG, or WebP image");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Choose an image smaller than 5 MB");
+      return;
+    }
+    const form = new FormData();
+    setUploadingImage(field);
+    try {
+      form.append("file", await prepareUploadImage(file));
+      const response = await apiFetch("media/upload/ui", { method: "POST", body: form }, { forceBackend: true });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success || !result?.data?.url) {
+        throw new Error(result?.message || `Image upload failed (HTTP ${response.status})`);
+      }
+      setFormData(current => ({ ...current, [field]: result.data.url }));
+      toast.success(field === "desktopImageUrl" ? "Desktop image uploaded" : "Mobile image uploaded");
+    } catch (uploadError) {
+      toast.error("Campaign image upload failed", { description: uploadError instanceof Error ? uploadError.message : "Please try again." });
+    } finally {
+      setUploadingImage(null);
+      if (field === "desktopImageUrl" && desktopImageInput.current) desktopImageInput.current.value = "";
+      if (field === "mobileImageUrl" && mobileImageInput.current) mobileImageInput.current.value = "";
+    }
   };
 
   const handleSave = async (status: Campaign["status"]) => {
@@ -511,13 +548,21 @@ export default function AdminCampaignForm({
               </div>
               <div className="space-y-2 md:col-span-2">
                 <label className="text-sm font-semibold">
-                  Desktop campaign image URL
+                  Desktop campaign image
                 </label>
+                <div className="flex flex-wrap gap-3">
+                  <input ref={desktopImageInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Choose desktop campaign image" onChange={event => void uploadCampaignImage("desktopImageUrl", event.target.files?.[0])} />
+                  <Button type="button" variant="outline" className="h-10 rounded-xl bg-white" disabled={uploadingImage !== null} onClick={() => desktopImageInput.current?.click()}>
+                    {uploadingImage === "desktopImageUrl" ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Upload className="mr-2 size-4" />}
+                    {uploadingImage === "desktopImageUrl" ? "Uploading…" : "Upload desktop image"}
+                  </Button>
+                  {formData.desktopImageUrl && <img src={formData.desktopImageUrl} alt="Desktop campaign preview" className="h-10 w-20 rounded-lg object-cover ring-1 ring-black/10" />}
+                </div>
                 <Input
                   name="desktopImageUrl"
                   value={formData.desktopImageUrl || ""}
                   onChange={handleChange}
-                  placeholder="https://.../offer-banner.jpg"
+                  placeholder="Uploaded image URL"
                 />
                 <p className="text-xs text-muted-foreground">
                   Required when publishing. This image is shown in the
@@ -531,11 +576,19 @@ export default function AdminCampaignForm({
                     (optional)
                   </span>
                 </label>
+                <div className="flex flex-wrap gap-3">
+                  <input ref={mobileImageInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" aria-label="Choose mobile campaign image" onChange={event => void uploadCampaignImage("mobileImageUrl", event.target.files?.[0])} />
+                  <Button type="button" variant="outline" className="h-10 rounded-xl bg-white" disabled={uploadingImage !== null} onClick={() => mobileImageInput.current?.click()}>
+                    {uploadingImage === "mobileImageUrl" ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Upload className="mr-2 size-4" />}
+                    {uploadingImage === "mobileImageUrl" ? "Uploading…" : "Upload mobile image"}
+                  </Button>
+                  {formData.mobileImageUrl && <img src={formData.mobileImageUrl} alt="Mobile campaign preview" className="h-10 w-20 rounded-lg object-cover ring-1 ring-black/10" />}
+                </div>
                 <Input
                   name="mobileImageUrl"
                   value={formData.mobileImageUrl || ""}
                   onChange={handleChange}
-                  placeholder="https://.../offer-mobile.jpg"
+                  placeholder="Uploaded image URL"
                 />
               </div>
             </div>

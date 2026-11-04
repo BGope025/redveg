@@ -60,6 +60,8 @@ type OrderReceipt = {
   subtotalAmount: number;
   discountAmount: number;
   deliveryFee: number;
+  cgstAmount: number;
+  sgstAmount: number;
   deliveryDistanceKm: number;
   deliveryRatePerKm: number;
   couponCode: string | null;
@@ -856,6 +858,8 @@ export default function CustomerProfilePage() {
                                       : formatMoney(0)
                                   }
                                 />
+                                <ReceiptRow label="CGST · 2.5%" value={formatMoney(order.cgstAmount)} />
+                                <ReceiptRow label="SGST · 2.5%" value={formatMoney(order.sgstAmount)} />
                                 <ReceiptRow
                                   label="Total"
                                   value={formatMoney(order.totalAmount)}

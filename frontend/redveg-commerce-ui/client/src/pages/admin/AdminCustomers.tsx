@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { parseCustomerWorkbook, type ImportedCustomerRow } from "@/lib/customerWorkbook";
+
+const CUSTOMER_IMPORT_BATCH_SIZE = 1000;
 import { formatISTDate } from "@/lib/dateTime";
 
 type SalesReportSummary = {
@@ -103,6 +105,7 @@ export default function AdminCustomers() {
   const [workbookName, setWorkbookName] = useState("");
   const [readingWorkbook, setReadingWorkbook] = useState(false);
   const [importingWorkbook, setImportingWorkbook] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ completedRows: number; totalRows: number } | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [customerDraft, setCustomerDraft] = useState({ name: "", phone: "", address: "", locality: "", pincode: "", notes: "" });
@@ -234,8 +237,8 @@ export default function AdminCustomers() {
     setWorkbookRows([]);
     setWorkbookName("");
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      toast.error("Choose an .xlsx Excel workbook", { description: "Save older .xls workbooks as .xlsx in Excel first." });
+    if (!/\.(xlsx?|csv)$/i.test(file.name)) {
+      toast.error("Choose an .xls, .xlsx, or .csv spreadsheet");
       return;
     }
     setReadingWorkbook(true);
@@ -254,26 +257,47 @@ export default function AdminCustomers() {
   const submitWorkbook = async () => {
     if (!workbookRows.length) return;
     setImportingWorkbook(true);
+    let completedRows = 0;
+    const batchCount = Math.ceil(workbookRows.length / CUSTOMER_IMPORT_BATCH_SIZE);
+    const totals = { inserted: 0, updated: 0, skippedDuplicates: 0, rejected: 0 };
     try {
-      const response = await apiFetch("customers/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: workbookName, customers: workbookRows }),
-      }, { forceBackend: true });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success === false) throw new Error(payload.message || "Customer import failed");
-      const summary = payload.data || {};
-      toast.success(`${Number(summary.inserted) || 0} new customers added`, {
-        description: `${Number(summary.skippedDuplicates) || 0} duplicate${Number(summary.skippedDuplicates) === 1 ? "" : "s"} skipped · ${Number(summary.rejected) || 0} invalid row${Number(summary.rejected) === 1 ? "" : "s"} skipped`,
+      setImportProgress({ completedRows: 0, totalRows: workbookRows.length });
+      for (let batchIndex = 0; batchIndex < batchCount; batchIndex += 1) {
+        const start = batchIndex * CUSTOMER_IMPORT_BATCH_SIZE;
+        const customers = workbookRows.slice(start, start + CUSTOMER_IMPORT_BATCH_SIZE);
+        const response = await apiFetch("customers/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: workbookName, customers }),
+        }, { forceBackend: true });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.success === false) {
+          throw new Error(`Batch ${batchIndex + 1} of ${batchCount} failed: ${payload.message || "Customer import failed"}`);
+        }
+        const summary = payload.data || {};
+        totals.inserted += Number(summary.inserted) || 0;
+        totals.updated += Number(summary.updated) || 0;
+        totals.skippedDuplicates += Number(summary.skippedDuplicates) || 0;
+        totals.rejected += Number(summary.rejected) || 0;
+        completedRows += customers.length;
+        setImportProgress({ completedRows, totalRows: workbookRows.length });
+      }
+
+      toast.success(`${totals.inserted} new · ${totals.updated} updated`, {
+        description: `${completedRows.toLocaleString("en-IN")} rows processed in ${batchCount} batch${batchCount === 1 ? "" : "es"} · ${totals.skippedDuplicates} account duplicate${totals.skippedDuplicates === 1 ? "" : "s"} skipped · ${totals.rejected} invalid row${totals.rejected === 1 ? "" : "s"} skipped`,
       });
       setImportOpen(false);
       setWorkbookRows([]);
       setWorkbookName("");
       setRefreshKey((current) => current + 1);
     } catch (importError) {
-      toast.error("Could not import customers", { description: importError instanceof Error ? importError.message : "Please try again." });
+      const message = importError instanceof Error ? importError.message : "Please try again.";
+      toast.error("Customer import stopped", {
+        description: `${message}. Earlier batches may already be saved; retrying the same workbook is safe because imported customers are merged by phone number.`,
+      });
     } finally {
       setImportingWorkbook(false);
+      setImportProgress(null);
     }
   };
 
@@ -358,10 +382,10 @@ export default function AdminCustomers() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1120px] text-left">
+              <table className="w-full min-w-[1320px] text-left">
                 <thead>
                   <tr className="border-b border-black/5 bg-[#FBF9F6] text-[0.65rem] font-black uppercase tracking-[0.13em] text-muted-foreground">
-                    <th className="px-6 py-3">Customer</th><th className="px-4 py-3">Record type</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Customer ID</th><th className="px-4 py-3">Report payment status</th><th className="px-4 py-3">Cleared / due</th><th className="px-6 py-3">Joined / first sale</th><th className="px-4 py-3">Actions</th>
+                    <th className="px-6 py-3">Customer</th><th className="px-4 py-3">Record type</th><th className="px-4 py-3">Phone</th><th className="px-4 py-3">Address</th><th className="px-4 py-3">Customer ID</th><th className="px-4 py-3">Report payment status</th><th className="px-4 py-3">Cleared / due</th><th className="px-6 py-3">Joined / first sale</th><th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -381,6 +405,7 @@ export default function AdminCustomers() {
                         </td>
                         <td className="px-4 py-4 text-xs font-bold"><span className={customer.recordType === "sales_report" ? "rounded-full bg-[#F8E7E6] px-2.5 py-1 text-[#8E2028]" : customer.recordType === "imported" ? "rounded-full bg-[#FFF7E8] px-2.5 py-1 text-[#80520C]" : "rounded-full bg-[#EEF6F0] px-2.5 py-1 text-[#267345]"}>{customer.recordType === "sales_report" ? "Report only" : customer.recordType === "firebase" ? "Firebase login" : customer.recordType === "imported" ? "Phone order · imported" : "Account"}</span></td>
                         <td className="px-4 py-4 text-sm text-muted-foreground">{customer.phoneNo || (customer.recordType === "sales_report" ? "Not in report" : "—")}</td>
+                        <td className="max-w-xs px-4 py-4 text-sm text-muted-foreground">{[customer.address, customer.locality, customer.pincode].filter(Boolean).join(", ") || "—"}</td>
                         <td className="px-4 py-4 font-mono text-xs text-muted-foreground">{customer.recordType === "sales_report" ? "No login account" : customer.recordType === "firebase" ? "Firebase account" : customer.customer_id}</td>
                         <td className="px-4 py-4">{customer.recordType === "sales_report" && customer.salesReport ? <div className="flex flex-wrap gap-1.5 text-[0.65rem] font-bold"><span className="rounded-full bg-[#EEF6F0] px-2 py-1 text-[#267345]">Paid {customer.salesReport.paidInvoiceCount}</span><span className="rounded-full bg-[#FFF7E8] px-2 py-1 text-[#8A5B13]">Partial {customer.salesReport.partialInvoiceCount}</span><span className="rounded-full bg-[#F8E7E6] px-2 py-1 text-[#8E2028]">Unpaid {customer.salesReport.unpaidInvoiceCount}</span></div> : "—"}</td>
                         <td className="px-4 py-4 text-xs font-semibold">{customer.recordType === "sales_report" && customer.salesReport ? <div className="space-y-1 whitespace-nowrap"><p className="text-[#267345]">Cleared {formatINR(customer.salesReport.clearedAmount)}</p><p className="text-[#8E2028]">Due {formatINR(customer.salesReport.dueAmount)}</p></div> : "—"}</td>
@@ -427,31 +452,32 @@ export default function AdminCustomers() {
         <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle>Import phone-order customers</DialogTitle>
-            <DialogDescription>Choose an .xlsx workbook. Only new customers are added; imported rows never replace existing directory records or Firebase accounts.</DialogDescription>
+            <DialogDescription>Choose an .xls, .xlsx, or .csv spreadsheet. The importer searches all sheets for the customer table. New phone customers are added, and matching imported customers are updated. Blank cells keep their saved values; registered accounts and Firebase profiles are never changed.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-xl bg-[#FBF9F6] p-4 text-sm leading-6 text-[#51443F]">
-              <p className="font-bold">First worksheet columns</p>
+              <p className="font-bold">Customer columns</p>
               <p className="mt-1">Required: <strong>Name</strong> and <strong>Mobile</strong> (or Phone). Optional: Address, Locality, Pincode, Notes.</p>
-              <p className="mt-2 text-xs text-muted-foreground">Duplicate checks use the normalized 10-digit mobile number across this sheet, previous imports, registered accounts, and Firebase profiles. The workbook is read in this browser and is not stored.</p>
+              <p className="mt-2 text-xs text-muted-foreground">Larger workbooks are imported in batches of 1,000. Matching imported customers are merged by normalized 10-digit mobile number. Non-empty spreadsheet values update saved details; blank cells leave saved values intact. Registered accounts and Firebase profiles are skipped. The workbook is read in this browser and is not stored.</p>
             </div>
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-black/20 bg-white p-4 hover:border-[#B4232C]/50">
               <FileSpreadsheet className="size-5 shrink-0 text-[#B4232C]" />
-              <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{workbookName || "Select an Excel workbook"}</span><span className="mt-1 block text-xs text-muted-foreground">.xlsx · first worksheet · up to 20 MB</span></span>
-              <input className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={readingWorkbook || importingWorkbook} onChange={(event) => { void readWorkbook(event.target.files?.[0]); event.currentTarget.value = ""; }} />
+              <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{workbookName || "Select a spreadsheet"}</span><span className="mt-1 block text-xs text-muted-foreground">.xls, .xlsx, or .csv · all sheets · up to 20 MB</span></span>
+              <input className="sr-only" type="file" accept=".xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" disabled={readingWorkbook || importingWorkbook} onChange={(event) => { void readWorkbook(event.target.files?.[0]); event.currentTarget.value = ""; }} />
             </label>
             {readingWorkbook && <p className="text-sm text-muted-foreground" role="status">Reading worksheet locally…</p>}
+            {importingWorkbook && importProgress && <p className="text-sm font-semibold text-[#267345]" role="status">Imported {importProgress.completedRows.toLocaleString("en-IN")} of {importProgress.totalRows.toLocaleString("en-IN")} rows…</p>}
             {workbookRows.length > 0 && <div className="rounded-xl border border-black/5 p-4">
-              <div className="flex items-baseline justify-between gap-3"><p className="text-sm font-black">{workbookRows.length.toLocaleString("en-IN")} rows found</p><p className="text-xs text-muted-foreground">{workbookRows.filter((row) => row.name.trim() && row.phone.replace(/\D/g, "").length >= 10).length} look ready</p></div>
+              <div className="flex items-baseline justify-between gap-3"><p className="text-sm font-black">{workbookRows.length.toLocaleString("en-IN")} rows found</p><p className="text-xs text-muted-foreground">{workbookRows.filter((row) => String(row.name || "").trim() && String(row.phone || "").replace(/\D/g, "").length >= 10).length} look ready</p></div>
               <div className="mt-3 max-h-40 overflow-auto rounded-lg bg-[#FBF9F6]">
-                <table className="w-full text-left text-xs"><thead><tr className="text-muted-foreground"><th className="px-3 py-2">Row</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Mobile</th></tr></thead><tbody>{workbookRows.slice(0, 8).map((row) => <tr key={row.rowNumber} className="border-t border-black/5"><td className="px-3 py-2">{row.rowNumber}</td><td className="px-3 py-2 font-semibold">{row.name || "—"}</td><td className="px-3 py-2">{row.phone || "—"}</td></tr>)}</tbody></table>
+                <table className="w-full text-left text-xs"><thead><tr className="text-muted-foreground"><th className="px-3 py-2">Row</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Mobile</th><th className="px-3 py-2">Address</th></tr></thead><tbody>{workbookRows.slice(0, 8).map((row) => <tr key={row.rowNumber} className="border-t border-black/5"><td className="px-3 py-2">{row.rowNumber}</td><td className="px-3 py-2 font-semibold">{row.name || "—"}</td><td className="px-3 py-2">{row.phone || "—"}</td><td className="px-3 py-2">{[row.address, row.locality, row.pincode].filter(Boolean).join(", ") || "—"}</td></tr>)}</tbody></table>
               </div>
               {workbookRows.length > 8 && <p className="mt-2 text-[0.7rem] text-muted-foreground">Showing first 8 rows. All {workbookRows.length} rows will be processed.</p>}
             </div>}
           </div>
           <DialogFooter>
             <Button variant="outline" className="rounded-full" disabled={importingWorkbook} onClick={() => setImportOpen(false)}>Cancel</Button>
-            <Button className="rounded-full bg-[#B4232C] text-white hover:bg-[#941D25]" disabled={!workbookRows.length || readingWorkbook || importingWorkbook} onClick={() => void submitWorkbook()}>{importingWorkbook ? "Importing…" : `Add ${workbookRows.length || "new"} customers`}</Button>
+            <Button className="rounded-full bg-[#B4232C] text-white hover:bg-[#941D25]" disabled={!workbookRows.length || readingWorkbook || importingWorkbook} onClick={() => void submitWorkbook()}>{importingWorkbook ? `Importing ${importProgress?.completedRows.toLocaleString("en-IN") || "0"} / ${workbookRows.length.toLocaleString("en-IN")}…` : `Sync ${workbookRows.length || "new"} customers`}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

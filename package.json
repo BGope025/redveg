@@ -15,8 +15,7 @@
   "keywords": [
     "ecommerce",
     "express",
-    "turso",
-    "cloudinary"
+    "turso"
   ],
   "author": "RedVeg Team",
   "license": "MIT",
@@ -25,7 +24,6 @@
     "@libsql/client": "^0.5.6",
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.8",
-    "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.3.0",

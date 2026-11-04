@@ -4,6 +4,7 @@ const { generateOrderId, generateCartSnapshot } = require('../../../utils/id-gen
 const { generateNotFoundError, generateValidationError, generateOutOfStockError } = require('../../../utils/error-classes');
 const { executeCrossDbSaga } = require('../../../services/db-saga.service');
 const { generateWhatsAppMessage } = require('../../../services/whatsapp.service');
+const { calculateOrderTax } = require('../../../services/order-tax.service');
 const { CouponValidationError, roundMoney, findApplicableCoupon, reserveCouponUsage, releaseCouponUsage } = require('../../../services/coupon.service');
 const { ensureOrderCouponColumns, ensureOrderPaymentColumns, ensureOrderReceiptColumns, ensureOrderEditColumns, ensureOrderDeliveryColumns, ensureOrderDeliverySlotColumns, ensureOrderCancellationColumns } = require('./orders.schema');
 const { DeliveryQuoteError, quoteDeliveryFee } = require('../../../services/delivery-fee.service');
@@ -33,6 +34,7 @@ const verifyRazorpayPayment = async (req, res) => {
   if (!req.firebaseCustomer?.uid) return res.status(401).json({ success: false, message: 'A verified customer sign-in is required.' });
   try {
     const db = await getDatabaseConnection('orders');
+    await ensureOrderCouponColumns(db);
     await ensureOrderPaymentColumns(db);
     const result = await db.execute({
       sql: 'SELECT id, firebase_uid, total_amount, payment_status, gateway_payment_id, razorpay_order_id FROM orders WHERE id = ? AND is_archived = 0',
@@ -156,6 +158,7 @@ const getAllOrders = async (req, res) => {
     await ensureOrderPaymentColumns(db);
     await ensureOrderDeliveryColumns(db);
     await ensureOrderDeliverySlotColumns(db);
+    await ensureOrderCouponColumns(db);
     await ensureOrderReceiptColumns(db);
     await ensureOrderCancellationColumns(db);
 
@@ -185,13 +188,13 @@ const getAllOrders = async (req, res) => {
 
     // Filter by date range (from)
     if (req.query.from) {
-      baseSql += ' AND o.created_at >= ?';
+      baseSql += ' AND COALESCE(o.order_date, o.created_at) >= ?';
       baseArgs.push(req.query.from);
     }
 
     // Filter by date range (to)
     if (req.query.to) {
-      baseSql += ' AND o.created_at <= ?';
+      baseSql += ' AND COALESCE(o.order_date, o.created_at) <= ?';
       baseArgs.push(req.query.to);
     }
 
@@ -213,11 +216,11 @@ const getAllOrders = async (req, res) => {
       const phoneExpression = `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(o.customer_phone, ''), '+', ''), ' ', ''), '-', ''), '(', ''), ')', ''), '.', '')`;
       const searchClause = tokens.map(() => `(LOWER(COALESCE(o.id, '')) LIKE ? OR LOWER(COALESCE(o.customer_name, '')) LIKE ? OR LOWER(${phoneExpression}) LIKE ?)` ).join(' AND ');
       const searchArgs = tokens.flatMap(token => [`%${token}%`, `%${token}%`, `%${token}%`]);
-      const exactSql = `${baseSql}${searchClause ? ` AND ${searchClause}` : ''} ORDER BY o.created_at DESC LIMIT ? OFFSET ?`;
+      const exactSql = `${baseSql}${searchClause ? ` AND ${searchClause}` : ''} ORDER BY COALESCE(o.order_date, o.created_at) DESC LIMIT ? OFFSET ?`;
       result = await db.execute({ sql: exactSql, args: [...baseArgs, ...searchArgs, limit, offset] });
 
       if (!result.rows.length && normalizeOrderSearch(query).replace(/\s/g, '').length >= 3) {
-        const candidates = await db.execute({ sql: `${baseSql} ORDER BY o.created_at DESC LIMIT 10000`, args: baseArgs });
+        const candidates = await db.execute({ sql: `${baseSql} ORDER BY COALESCE(o.order_date, o.created_at) DESC LIMIT 10000`, args: baseArgs });
         const matches = candidates.rows
           .map(order => ({ order, score: fuzzyOrderSearchScore(order, query) }))
           .filter(match => match.score !== null)
@@ -229,7 +232,7 @@ const getAllOrders = async (req, res) => {
       }
     } else {
       result = await db.execute({
-        sql: `${baseSql} ORDER BY o.created_at DESC LIMIT ? OFFSET ?`,
+        sql: `${baseSql} ORDER BY COALESCE(o.order_date, o.created_at) DESC LIMIT ? OFFSET ?`,
         args: [...baseArgs, limit, offset],
       });
     }
@@ -262,7 +265,7 @@ const getAllOrders = async (req, res) => {
         return [
           order.id, order.customer_name, order.customer_phone, order.customer_address, items,
           order.subtotal_amount, order.delivery_fee, order.discount_amount, order.total_amount,
-          order.payment_status, order.received_amount, order.balance_amount, order.status, order.created_at,
+          order.payment_status, order.received_amount, order.balance_amount, order.status, order.order_date || order.created_at,
         ].map(csvCell).join(',');
       });
       const date = getKolkataDateString().replace(/-/g, '');
@@ -454,6 +457,7 @@ const createOrder = async (req, res) => {
     let deliveryDistanceKm = 0;
     let deliveryRatePerKm = 10;
     let totalAmount = 0;
+    let tax = { taxableAmount: 0, cgstAmount: 0, sgstAmount: 0, taxAmount: 0 };
     let finalDeliveryQuote;
     const deliveryDestination = req.body?.deliveryDestination || {};
     finalDeliveryQuote = await quoteDeliveryFee(deliveryDestination, { requireExactAddress: true });
@@ -484,7 +488,8 @@ const createOrder = async (req, res) => {
         await reserveCouponUsage(catalogTransaction, reservedCouponId, couponCustomerKey, orderId);
       }
 
-      totalAmount = roundMoney(Math.max(0, subtotalAmount - discountAmount) + deliveryFee);
+      tax = calculateOrderTax(subtotalAmount, discountAmount, deliveryFee);
+      totalAmount = tax.totalAmount;
 
       for (const item of cartItems) {
         const result = await catalogTransaction.execute({ sql: 'UPDATE variants SET stock_count = stock_count - ? WHERE id = ? AND product_id = ? AND stock_count >= ? AND is_available = 1', args: [item.quantity, item.variantId, item.productId, item.quantity] });
@@ -515,8 +520,9 @@ const createOrder = async (req, res) => {
           delivery_destination_latitude, delivery_destination_longitude, delivery_distance_method,
           delivery_distance_provider, delivery_origin_address, delivery_matched_address,
           payment_updated_at, payment_updated_by,
-          delivery_slot_id, delivery_slot_name, delivery_slot_time, status, is_archived, order_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP)
+          delivery_slot_id, delivery_slot_name, delivery_slot_time, status, is_archived, order_date,
+          taxable_amount, cgst_amount, sgst_amount
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP, ?, ?, ?)
       `,
       args: [
         orderId,
@@ -548,6 +554,9 @@ const createOrder = async (req, res) => {
         requestedDeliverySlotId,
         deliverySlotName,
         deliverySlotTime,
+        tax.taxableAmount,
+        tax.cgstAmount,
+        tax.sgstAmount,
       ]
     });
     orderInserted = true;
@@ -581,6 +590,8 @@ const createOrder = async (req, res) => {
       subtotalAmount,
       discountAmount,
       deliveryFee,
+      cgstAmount: tax.cgstAmount,
+      sgstAmount: tax.sgstAmount,
       deliveryDistanceKm,
       deliveryRatePerKm,
       deliverySlotName,
@@ -612,6 +623,9 @@ const createOrder = async (req, res) => {
         subtotalAmount,
         discountAmount,
         deliveryFee,
+        taxableAmount: tax.taxableAmount,
+        cgstAmount: tax.cgstAmount,
+        sgstAmount: tax.sgstAmount,
         deliveryDistanceKm,
         deliveryRatePerKm,
         couponCode: couponCode || null,
@@ -1162,7 +1176,8 @@ const updateOrderItems = async (req, res) => {
     const subtotal = roundMoney(newSnapshot.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0));
     const discount = roundMoney(Math.min(subtotal, Math.max(0, Number(existing.discount_amount) || 0)));
     const deliveryFee = roundMoney(Number(existing.delivery_fee) || 0);
-    const total = roundMoney(Math.max(0, subtotal - discount) + deliveryFee);
+    const tax = calculateOrderTax(subtotal, discount, deliveryFee);
+    const total = tax.totalAmount;
     const received = roundMoney(Math.max(0, Number(existing.received_amount) || 0));
     const due = roundMoney(Math.max(0, total - received));
     const paymentStatus = received >= total ? 'paid' : received > 0 ? 'partial' : 'unpaid';
@@ -1174,10 +1189,11 @@ const updateOrderItems = async (req, res) => {
 
     const update = await ordersDb.execute({
       sql: `UPDATE orders SET cart_snapshot = ?, subtotal_amount = ?, discount_amount = ?, delivery_fee = ?,
+        taxable_amount = ?, cgst_amount = ?, sgst_amount = ?,
         total_amount = ?, balance_amount = ?, payment_status = ?, coupon_code = ?,
         items_updated_by = ?, items_updated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND is_archived = 0 AND cart_snapshot = ? AND LOWER(status) IN ('pending', 'new', 'approved', 'confirmed', 'processing') AND LOWER(COALESCE(cancellation_status, 'none')) <> 'requested'`,
-      args: [JSON.stringify(newSnapshot), subtotal, discount, deliveryFee, total, due, paymentStatus,
+      args: [JSON.stringify(newSnapshot), subtotal, discount, deliveryFee, tax.taxableAmount, tax.cgstAmount, tax.sgstAmount, total, due, paymentStatus,
         existing.coupon_code || null, req.user?.userId || null, id, existing.cart_snapshot],
     });
     if (!update.rowsAffected) throw Object.assign(new Error('Order changed while you were editing. Reload it and try again.'), { statusCode: 409 });
@@ -1185,7 +1201,7 @@ const updateOrderItems = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Order items saved to the database.',
-      data: { id, items: newSnapshot, subtotalAmount: subtotal, discountAmount: discount, deliveryFee, deliveryDistanceKm: Number(existing.delivery_distance_km) || 0, deliveryRatePerKm: Number(existing.delivery_rate_per_km) || 10, totalAmount: total, paymentStatus, receivedAmount: received, dueAmount: due },
+      data: { id, items: newSnapshot, subtotalAmount: subtotal, discountAmount: discount, deliveryFee, taxableAmount: tax.taxableAmount, cgstAmount: tax.cgstAmount, sgstAmount: tax.sgstAmount, deliveryDistanceKm: Number(existing.delivery_distance_km) || 0, deliveryRatePerKm: Number(existing.delivery_rate_per_km) || 10, totalAmount: total, paymentStatus, receivedAmount: received, dueAmount: due },
     });
   } catch (error) {
     if (catalogTransactionOpen) {

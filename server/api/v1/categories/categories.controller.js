@@ -140,9 +140,11 @@ const updateCategoryImage = async (req, res) => {
   if (imageUrl) {
     try {
       const url = new URL(imageUrl);
-      if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com') throw new Error('invalid host');
+      if (url.protocol !== 'https:') throw new Error('invalid protocol');
     } catch {
-      return res.status(400).json({ success: false, message: 'Use a secure Cloudinary image URL.' });
+      if (!imageUrl.startsWith('/uploads/')) {
+        return res.status(400).json({ success: false, message: 'Use a secure image URL or an uploaded server image.' });
+      }
     }
   }
   try {

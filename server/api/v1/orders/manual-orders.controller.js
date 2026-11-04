@@ -8,6 +8,7 @@ const { ensureImportedSalesPartiesSchema } = require('../customers/imported-sale
 const { ensureOrderCouponColumns, ensureOrderPaymentColumns, ensureOrderDeliveryColumns, ensureOrderDeliverySlotColumns, ensureManualOrderColumns } = require('./orders.schema');
 const { quoteDeliveryFee } = require('../../../services/delivery-fee.service');
 const { CouponValidationError, roundMoney, findApplicableCoupon, reserveCouponUsage } = require('../../../services/coupon.service');
+const { calculateOrderTax } = require('../../../services/order-tax.service');
 const logger = require('../../../utils/logger');
 
 function normalizePhone(value) {
@@ -26,6 +27,20 @@ function phoneSearchTerm(value) {
   if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2);
   if (digits.length > 10 && digits.startsWith('0')) digits = digits.slice(1);
   return digits;
+}
+
+function kolkataDateString(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function isValidDateInput(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 async function searchManualCustomers(req, res) {
@@ -144,6 +159,10 @@ async function createManualOrder(req, res) {
   try {
     const body = req.body || {};
     const items = Array.isArray(body.items) ? body.items : [];
+    const orderDate = String(body.orderDate || kolkataDateString()).trim();
+    if (!isValidDateInput(orderDate) || orderDate > kolkataDateString()) {
+      return res.status(400).json({ success: false, message: 'Choose a valid customer order date that is not in the future.' });
+    }
     if (!items.length || items.length > 100) return res.status(400).json({ success: false, message: 'Add at least one product (up to 100 lines).' });
     for (const item of items) {
       if (typeof item.productId !== 'string' || typeof item.variantId !== 'string' || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1 || Number(item.quantity) > 99) {
@@ -224,7 +243,8 @@ async function createManualOrder(req, res) {
       discountAmount = quote.discountAmount;
     }
     const deliveryFee = deliveryQuote.deliveryFee;
-    const total = roundMoney(Math.max(0, subtotal - discountAmount) + deliveryFee);
+    const tax = calculateOrderTax(subtotal, discountAmount, deliveryFee);
+    const total = tax.totalAmount;
     const amountReceived = Number(body.amountReceived || 0);
     if (!Number.isFinite(amountReceived) || amountReceived < 0 || amountReceived > total || (paymentStatus === 'partial' && !(amountReceived > 0 && amountReceived < total)) || (paymentStatus === 'unpaid' && amountReceived !== 0) || (paymentStatus === 'paid' && amountReceived !== total)) {
       throw Object.assign(new Error('Amount received must match the selected payment status.'), { statusCode: 400 });
@@ -263,18 +283,19 @@ async function createManualOrder(req, res) {
         delivery_destination_latitude, delivery_destination_longitude, delivery_distance_method, delivery_distance_provider,
         delivery_origin_address, delivery_matched_address, delivery_slot_id, delivery_slot_name, delivery_slot_time,
         payment_method, payment_updated_at, payment_updated_by, customer_notes, order_source, created_by,
-        status, is_archived, order_date
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, 'Admin Manual', ?, 'pending', 0, CURRENT_TIMESTAMP)`,
+        status, is_archived, order_date, taxable_amount, cgst_amount, sgst_amount
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, 'Admin Manual', ?, 'pending', 0, ?, ?, ?, ?)`,
       args: [orderId, orderUser.userId, orderUser.customerId, orderUser.firebaseUid, JSON.stringify(snapshot), total, name, phone, storedAddress,
         couponId || null, code || null, subtotal, discountAmount, deliveryFee, paymentStatus, received, due,
         deliveryQuote.distanceKm, deliveryQuote.ratePerKm, deliveryQuote.originLatitude, deliveryQuote.originLongitude,
         deliveryQuote.destinationLatitude, deliveryQuote.destinationLongitude, deliveryQuote.distanceMethod, deliveryQuote.distanceProvider,
         deliveryQuote.originAddress, deliveryQuote.matchedDestinationAddress,
         slot?.id || null, slot?.name || null, slot ? `${slot.start_time}-${slot.end_time}` : null,
-        paymentMethod, paymentStatus === 'unpaid' ? null : req.user.userId, notes || null, req.user.userId],
+        paymentMethod, paymentStatus === 'unpaid' ? null : req.user.userId, notes || null, req.user.userId, orderDate,
+        tax.taxableAmount, tax.cgstAmount, tax.sgstAmount],
     });
     orderInserted = true;
-    return res.status(201).json({ success: true, message: 'Manual order saved to the order database.', data: { id: orderId, status: 'pending', orderSource: 'Admin Manual', subtotal, discountAmount, deliveryFee, total, paymentStatus, receivedAmount: received, dueAmount: due } });
+    return res.status(201).json({ success: true, message: 'Manual order saved to the order database.', data: { id: orderId, status: 'pending', orderSource: 'Admin Manual', subtotal, discountAmount, deliveryFee, ...tax, total, paymentStatus, receivedAmount: received, dueAmount: due } });
   } catch (error) {
     if (catalogTransaction) await catalogTransaction.rollback().catch(() => {});
     if (newImportedCustomerId && !orderInserted) {

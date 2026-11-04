@@ -89,6 +89,8 @@ function mapOrder(row) {
     subtotalAmount,
     discountAmount: Number(row.discount_amount) || 0,
     deliveryFee: Number(row.delivery_fee) || 0,
+    cgstAmount: Number(row.cgst_amount) || 0,
+    sgstAmount: Number(row.sgst_amount) || 0,
     deliveryDistanceKm: Number(row.delivery_distance_km) || 0,
     deliveryRatePerKm: Number(row.delivery_rate_per_km) || 10,
     couponCode: row.coupon_code || null,
@@ -107,6 +109,7 @@ async function getMyProfile(req, res) {
   try {
     const db = await getOrdersDatabase();
     await ensureOrderDeliveryColumns(db);
+    await ensureOrderCouponColumns(db);
     await saveIdentity(db, identity);
     const [profileResult, addressResult] = await Promise.all([
       db.execute({
@@ -348,9 +351,10 @@ async function getMyOrders(req, res) {
   try {
     const db = await getOrdersDatabase();
     await ensureOrderDeliveryColumns(db);
+    await ensureOrderCouponColumns(db);
     const result = await db.execute({
       sql: `SELECT id, cart_snapshot, total_amount, subtotal_amount, discount_amount,
-        delivery_fee, delivery_distance_km, delivery_rate_per_km, coupon_code, payment_status, payment_method, received_amount, balance_amount,
+        delivery_fee, cgst_amount, sgst_amount, delivery_distance_km, delivery_rate_per_km, coupon_code, payment_status, payment_method, received_amount, balance_amount,
         customer_name, customer_phone, customer_address, status, created_at,
         receipt_number, receipt_issued_at, cancellation_status,
         cancellation_requested_at, cancellation_review_note

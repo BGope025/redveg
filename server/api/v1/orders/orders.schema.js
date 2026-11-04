@@ -19,6 +19,7 @@ async function ensureManualOrderColumns(db) {
         ['created_by', 'TEXT'],
         ['payment_method', 'TEXT'],
         ['customer_notes', 'TEXT'],
+        ['order_date', 'DATETIME DEFAULT CURRENT_TIMESTAMP'],
       ]) {
         if (columns.has(name)) continue;
         try {
@@ -51,6 +52,9 @@ async function ensureOrderCouponColumns(db) {
         ['subtotal_amount', 'REAL NOT NULL DEFAULT 0 CHECK (subtotal_amount >= 0)'],
         ['discount_amount', 'REAL NOT NULL DEFAULT 0 CHECK (discount_amount >= 0)'],
         ['delivery_fee', 'REAL NOT NULL DEFAULT 0 CHECK (delivery_fee >= 0)'],
+        ['taxable_amount', 'REAL NOT NULL DEFAULT 0 CHECK (taxable_amount >= 0)'],
+        ['cgst_amount', 'REAL NOT NULL DEFAULT 0 CHECK (cgst_amount >= 0)'],
+        ['sgst_amount', 'REAL NOT NULL DEFAULT 0 CHECK (sgst_amount >= 0)'],
         ['delivery_distance_km', 'REAL'],
         ['delivery_rate_per_km', 'REAL'],
       ];
@@ -63,6 +67,23 @@ async function ensureOrderCouponColumns(db) {
           if (!/duplicate column name/i.test(String(error.message))) throw error;
         }
       }
+
+      // Some orders predate these columns. Recover tax values only when the
+      // persisted total already includes exactly this tax, so historical
+      // order totals and recorded payments are never changed retroactively.
+      const taxableAmount = 'ROUND(MAX(0, COALESCE(subtotal_amount, 0) - COALESCE(discount_amount, 0)) + COALESCE(delivery_fee, 0), 2)';
+      const componentTax = `ROUND(${taxableAmount} * 0.025, 2)`;
+      await db.execute({
+        sql: `UPDATE orders
+          SET taxable_amount = ${taxableAmount},
+              cgst_amount = ${componentTax},
+              sgst_amount = ${componentTax}
+          WHERE COALESCE(cgst_amount, 0) = 0
+            AND COALESCE(sgst_amount, 0) = 0
+            AND COALESCE(subtotal_amount, 0) > 0
+            AND ABS(COALESCE(total_amount, 0) - (${taxableAmount} + ${componentTax} + ${componentTax})) <= 0.02`,
+        args: [],
+      });
     })().catch((error) => {
       initializedDatabases.delete(db);
       throw error;

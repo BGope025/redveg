@@ -143,8 +143,8 @@ export function ProductCard({ product }: { product: Product }) {
               <p className="mt-2 text-xs font-black text-[#8F1D25]">Stock Unavailable</p>
             )}
 
-            <div className="mt-5 flex items-end justify-between gap-3">
-              <div>
+            <div className="mt-5 flex min-w-0 items-end justify-between gap-2 sm:gap-3">
+              <div className="min-w-0 shrink-0">
                 <p className="text-lg font-black tracking-tight text-[#251B18]">
                   ₹{variant?.price ?? 0}
                 </p>
@@ -160,9 +160,13 @@ export function ProductCard({ product }: { product: Product }) {
               <Button
                 onClick={add}
                 disabled={!canAddMore}
-                className="h-10 rounded-full bg-[#B4232C] px-4 font-black text-white shadow-[0_8px_18px_rgba(180,35,44,0.2)] hover:bg-[#921B22]"
+                className="h-auto min-h-10 min-w-0 max-w-[62%] shrink rounded-full bg-[#B4232C] px-3 py-2 text-center text-xs font-black leading-tight text-white shadow-[0_8px_18px_rgba(180,35,44,0.2)] hover:bg-[#921B22] sm:px-4 sm:text-sm"
               >
-                <Plus className="size-4" /> {canAddMore ? "Add" : "Stock Unavailable"}
+                {canAddMore ? (
+                  <><Plus className="size-4 shrink-0" /> Add</>
+                ) : (
+                  <span className="whitespace-normal">Unavailable</span>
+                )}
               </Button>
             </div>
           </>

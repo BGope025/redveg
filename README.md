@@ -6,14 +6,14 @@ System for RedVeg e-commerce platform for raw fish, poultry, and meat.
 
 - **Backend:** Node.js, Express.js (Hosted on GoDaddy VPS Linux QEMU Interface)
 - **Databases:** Turso SQL (libSQL) split across TWO distinct databases
-- **Storage:** Cloudinary (via Cloudinary SDK) with Sharp for compression
-- **Frontend (Future):** Next.js
+- **Storage:** Admin-uploaded product and campaign images on persistent VPS storage
+- **Frontend (Future):** Next.js on Vercel
 
 ## Features
 
 - Hybrid WhatsApp Checkout (RazorPay Checkout Integrated)
 - Admin Approval & Cross-DB Saga
-- Image upload with Sharp compression to Cloudinary
+- Image upload with validation, resizing and direct VPS storage
 - Data retention policy (auto-archive orders older than 30 days)
 - Server sleep mitigation with health check endpoint
 - JWT-based authentication
@@ -32,6 +32,12 @@ System for RedVeg e-commerce platform for raw fish, poultry, and meat.
   - Email service for notifications
   - Razorpay payment service support
   - Enhanced delivery location management
+- **Security Hardening (Development Environment):**
+  - AgentShield security audit compliance
+  - PreToolUse hooks blocking dangerous commands (rm -rf, sudo, curl|sh, etc.)
+  - Secret detection preventing writes to .env, keys, credentials
+  - Supply-chain protection: ignore-scripts=true, minimumReleaseAge: 7d
+  - Scoped permissions for VS Code and Claude Code
 
 ## Project Structure
 
@@ -41,6 +47,13 @@ RedVeg-Backend/
 ├── .env
 ├── .env.example
 ├── package.json
+├── .npmrc
+├── pnpm-workspace.yaml
+├── .claude/
+│   ├── settings.local.json
+│   └── hooks/
+│       ├── pre-bash-check.sh
+│       └── pre-write-check.sh
 ├── server/
 │   ├── server.js
 │   ├── app.js
@@ -85,10 +98,9 @@ RedVeg-Backend/
    TURSO_CATALOG_AUTH_TOKEN=<your_turso_catalog_auth_token>
    TURSO_ORDERS_URL=<your_turso_orders_url>
    TURSO_ORDERS_AUTH_TOKEN=<your_turso_orders_auth_token>
-   CLOUDINARY_CLOUD_NAME=<your_cloud_name>
-   CLOUDINARY_API_KEY=<your_api_key>
-   CLOUDINARY_API_SECRET=<your_api_secret>
    JWT_SECRET=<your_jwt_secret>
+   UPLOADS_DIR=/var/lib/redveg/uploads
+   APP_PUBLIC_URL=https://redveg.in
    PORT=3000
    ```
 
@@ -105,7 +117,7 @@ Remote Turso/LibSQL URLs use the official `@libsql/client/web` driver, avoiding 
 
 `body-parser` is an explicit production dependency because GoDaddy's Runtime Logs also reported it missing. If a new deployment still reports missing modules, confirm the app is rebuilding the repository's latest `main` source (not a stale preview artifact) and that its install/build operation completed before startup.
 
-In GoDaddy's app settings, configure the backend secrets from the Environment Variables section below (at minimum the database URLs/tokens used by this deployment, Cloudinary credentials, and `JWT_SECRET`). Do not upload or commit `.env`. After deployment, check **Runtime Logs** for `Server listening on 0.0.0.0:<port>` and open `/api/v1/health/ping` on the deployed app; it should return HTTP 200 with `status: "alive"`.
+In GoDaddy's app settings, configure the backend secrets from the Environment Variables section below (at minimum the database URLs/tokens used by this deployment and `JWT_SECRET`). Do not upload or commit `.env`. Set `UPLOADS_DIR` to persistent VPS storage and `APP_PUBLIC_URL` to the public site origin so admin image uploads survive app restarts and produce storefront URLs. Nginx must serve or proxy `/uploads/` to that directory/backend so storefront image URLs reach the stored files. After deployment, check **Runtime Logs** for `Server listening on 0.0.0.0:<port>` and open `/api/v1/health/ping` on the deployed app; it should return HTTP 200 with `status: "alive"`.
 
 ## API Endpoints
 
@@ -132,8 +144,8 @@ In GoDaddy's app settings, configure the backend secrets from the Environment Va
 - PUT `/api/v1/users/:userId` - Update user profile
 
 ### Media
-- POST `/api/v1/media/upload/products` - Upload product image (Admin)
-- POST `/api/v1/media/upload/ui` - Upload UI asset (Admin)
+- POST `/api/v1/media/upload/products` - Optimize and save product/category image to VPS storage (Admin)
+- POST `/api/v1/media/upload/ui` - Save campaign/UI image to VPS storage (Admin)
 
 ### UI
 - GET `/api/v1/ui/banners` - Get active banners
@@ -148,17 +160,10 @@ In GoDaddy's app settings, configure the backend secrets from the Environment Va
 - `TURSO_CATALOG_AUTH_TOKEN` - Turso catalog database auth token
 - `TURSO_ORDERS_URL` - Turso orders database URL
 - `TURSO_ORDERS_AUTH_TOKEN` - Turso orders database auth token
-- `CLOUDINARY_CLOUD_NAME` - Cloudinary cloud name
-- `CLOUDINARY_API_KEY` - Cloudinary API key
-- `CLOUDINARY_API_SECRET` - Cloudinary API secret
+- `UPLOADS_DIR` - Persistent directory for admin-uploaded images (default: `server/uploads`)
+- `APP_PUBLIC_URL` - Public site origin used to create absolute image URLs
 - `JWT_SECRET` - Secret for JWT token signing
 - `PORT` - Server port (default: 3000)
-- `CORS_ORIGIN` - CORS origin (default: *)
-- `ADMIN_WHATSAPP_NUMBER` - Admin WhatsApp number for order notifications
-- `ARCHIVE_CRON_TIME` - Cron time for archiving job (default: "0 0 * * *")
-- `MAX_FILE_SIZE_MB` - Maximum file upload size in MB (default: 5)
-- `SALT_ROUNDS` - Bcrypt salt rounds (default: 10)
-- `JWT_EXPIRES_IN` - JWT expiration time (default: "24h")
 - `CORS_ORIGIN` - CORS origin (default: *)
 - `ADMIN_WHATSAPP_NUMBER` - Admin WhatsApp number for order notifications
 - `ARCHIVE_CRON_TIME` - Cron time for archiving job (default: "0 0 * * *")

@@ -371,7 +371,7 @@ function cleanImportedCustomer(row = {}) {
   const name = String(row.name || row.customerName || '').trim().replace(/\s+/g, ' ').slice(0, 160);
   const phone = String(row.phone || row.phoneNo || row.mobile || row.mobileNumber || row.phone_number || '').trim().slice(0, 30);
   const normalizedPhone = normalizeCustomerPhone(phone);
-  const address = String(row.address || row.addressLine || '').trim().slice(0, 500);
+  const address = String(row.address || row.addressLine || row.address_line || row.customerAddress || row.customer_address || row.deliveryAddress || row.delivery_address || row.streetAddress || row.street_address || '').trim().slice(0, 500);
   const locality = String(row.locality || row.area || '').trim().slice(0, 160);
   const pincode = String(row.pincode || row.pinCode || row.postalCode || '').replace(/\D/g, '').slice(0, 10);
   const notes = String(row.notes || row.note || '').trim().slice(0, 500);
@@ -388,60 +388,103 @@ const importCustomers = async (req, res) => {
     const ordersDb = await getDatabaseConnection('orders');
     const { ensureCustomerAccountSchema } = require('./customer-account.schema');
     await Promise.all([ensureImportedCustomersSchema(customerDb), ensureCustomerAccountSchema(ordersDb)]);
-    const [accountRows, firebaseRows, importedRows] = await Promise.all([
-      customerDb.execute({ sql: 'SELECT phone_no FROM customers', args: [] }),
-      ordersDb.execute({ sql: 'SELECT phone_number FROM customer_profiles WHERE phone_number IS NOT NULL', args: [] }),
-      customerDb.execute({ sql: 'SELECT normalized_phone FROM imported_customers', args: [] }),
-    ]);
-    const existingPhones = new Set([
-      ...accountRows.rows.map((row) => normalizeCustomerPhone(row.phone_no)),
-      ...firebaseRows.rows.map((row) => normalizeCustomerPhone(row.phone_number)),
-      ...importedRows.rows.map((row) => String(row.normalized_phone || '')),
-    ].filter(Boolean));
-    const batchPhones = new Set();
-    const errors = [];
-    const duplicates = [];
-    const inserted = [];
-    const pending = [];
-    for (let index = 0; index < rows.length; index += 1) {
-      const customer = cleanImportedCustomer(rows[index]);
-      const rowNumber = Number(rows[index]?.rowNumber) || index + 2;
-      if (!customer.name || !customer.normalizedPhone) {
-        errors.push({ row: rowNumber, reason: !customer.name ? 'Customer name is required' : 'A valid 10-digit phone number is required' });
-        continue;
-      }
-      if (existingPhones.has(customer.normalizedPhone) || batchPhones.has(customer.normalizedPhone)) {
-        duplicates.push(rowNumber);
-        continue;
-      }
-      batchPhones.add(customer.normalizedPhone);
-      const id = `IMP-${randomUUID()}`;
-      pending.push({ id, rowNumber, customer });
-    }
-    for (let index = 0; index < pending.length; index += 25) {
-      const batch = pending.slice(index, index + 25);
-      const results = await Promise.all(batch.map(({ id, customer }) => customerDb.execute({
-        sql: `INSERT OR IGNORE INTO imported_customers
-          (imported_customer_id, name, phone_number, normalized_phone, address, locality, pincode, notes, dedupe_key, source_file)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [id, customer.name, customer.phone, customer.normalizedPhone, customer.address || null, customer.locality || null,
-          customer.pincode || null, customer.notes || null, `phone:${customer.normalizedPhone}`, String(req.body?.fileName || '').slice(0, 180) || null],
-      })));
-      results.forEach((result, resultIndex) => {
-        const candidate = batch[resultIndex];
-        if (Number(result.rowsAffected) > 0) {
-          inserted.push({ row: candidate.rowNumber, customerId: candidate.id });
-          existingPhones.add(candidate.customer.normalizedPhone);
-        } else {
-          duplicates.push(candidate.rowNumber);
+    const transaction = await customerDb.transaction('write');
+    let committed = false;
+    try {
+      const [accountRows, firebaseRows, importedRows] = await Promise.all([
+        transaction.execute({ sql: 'SELECT phone_no FROM customers', args: [] }),
+        ordersDb.execute({ sql: 'SELECT phone_number FROM customer_profiles WHERE phone_number IS NOT NULL', args: [] }),
+        transaction.execute({
+          sql: `SELECT imported_customer_id, name, phone_number, normalized_phone, address, locality, pincode, notes
+            FROM imported_customers`,
+          args: [],
+        }),
+      ]);
+      const accountPhones = new Set([
+        ...accountRows.rows.map((row) => normalizeCustomerPhone(row.phone_no)),
+      ].filter(Boolean));
+      const firebasePhones = new Set(firebaseRows.rows.map((row) => normalizeCustomerPhone(row.phone_number)).filter(Boolean));
+      const importedByPhone = new Map(importedRows.rows
+        .filter((row) => row.normalized_phone)
+        .map((row) => [String(row.normalized_phone), row]));
+      const errors = [];
+      const duplicates = [];
+      const inserted = [];
+      const updated = [];
+      for (let index = 0; index < rows.length; index += 1) {
+        const sourceRow = rows[index];
+        const customer = cleanImportedCustomer(sourceRow);
+        const rowNumber = Number(sourceRow?.rowNumber) || index + 2;
+        if (!customer.name || !customer.normalizedPhone) {
+          errors.push({ row: rowNumber, reason: !customer.name ? 'Customer name is required' : 'A valid 10-digit phone number is required' });
+          continue;
         }
+
+        const existingImported = importedByPhone.get(customer.normalizedPhone);
+        if (existingImported) {
+          await transaction.execute({
+            sql: `UPDATE imported_customers SET
+              name = ?, phone_number = ?,
+              address = COALESCE(NULLIF(?, ''), address),
+              locality = COALESCE(NULLIF(?, ''), locality),
+              pincode = COALESCE(NULLIF(?, ''), pincode),
+              notes = COALESCE(NULLIF(?, ''), notes),
+              source_file = COALESCE(NULLIF(?, ''), source_file),
+              updated_at = CURRENT_TIMESTAMP
+              WHERE imported_customer_id = ?`,
+            args: [customer.name, customer.phone, customer.address, customer.locality, customer.pincode,
+              customer.notes, String(req.body?.fileName || '').slice(0, 180), existingImported.imported_customer_id],
+          });
+          updated.push({ row: rowNumber, customerId: existingImported.imported_customer_id });
+          existingImported.name = customer.name;
+          existingImported.phone_number = customer.phone;
+          for (const field of ['address', 'locality', 'pincode', 'notes']) {
+            if (customer[field]) existingImported[field] = customer[field];
+          }
+          continue;
+        }
+
+        if (accountPhones.has(customer.normalizedPhone) || firebasePhones.has(customer.normalizedPhone)) {
+          duplicates.push(rowNumber);
+          continue;
+        }
+        const id = `IMP-${randomUUID()}`;
+        const result = await transaction.execute({
+          sql: `INSERT OR IGNORE INTO imported_customers
+            (imported_customer_id, name, phone_number, normalized_phone, address, locality, pincode, notes, dedupe_key, source_file)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, customer.name, customer.phone, customer.normalizedPhone, customer.address || null, customer.locality || null,
+            customer.pincode || null, customer.notes || null, `phone:${customer.normalizedPhone}`, String(req.body?.fileName || '').slice(0, 180) || null],
+        });
+        if (Number(result.rowsAffected) > 0) {
+          inserted.push({ row: rowNumber, customerId: id });
+          importedByPhone.set(customer.normalizedPhone, {
+            imported_customer_id: id,
+            name: customer.name,
+            phone_number: customer.phone,
+            normalized_phone: customer.normalizedPhone,
+            address: customer.address,
+            locality: customer.locality,
+            pincode: customer.pincode,
+            notes: customer.notes,
+          });
+        } else {
+          duplicates.push(rowNumber);
+        }
+      }
+      await transaction.commit();
+      committed = true;
+      return res.status(200).json({
+        success: true,
+        message: 'Customer sheet processed. Matching imported records were updated; blank fields were preserved.',
+        data: { inserted: inserted.length, updated: updated.length, skippedDuplicates: duplicates.length, rejected: errors.length, insertedRows: inserted, updatedRows: updated, duplicateRows: duplicates, errors },
       });
+    } catch (error) {
+      if (!committed) await transaction.rollback().catch(() => {});
+      throw error;
+    } finally {
+      await transaction.close?.();
     }
-    return res.status(200).json({
-      success: true,
-      message: 'Customer sheet processed. Existing records were left unchanged.',
-      data: { inserted: inserted.length, skippedDuplicates: duplicates.length, rejected: errors.length, insertedRows: inserted, duplicateRows: duplicates, errors },
-    });
   } catch (error) {
     logger.error('Error importing customers:', error);
     return res.status(500).json({ success: false, message: 'Customer import failed. No existing customer records were changed.' });
