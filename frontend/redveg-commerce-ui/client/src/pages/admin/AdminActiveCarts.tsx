@@ -102,6 +102,9 @@ export default function AdminActiveCarts() {
             <p className="text-sm font-black">{search.trim() ? `${totalMatches} matching ${totalMatches === 1 ? "cart" : "carts"}` : `${carts.length} ${carts.length === 1 ? "saved cart" : "saved carts"}`}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">{lastRefreshed ? `Refreshed ${formatISTDateTime(lastRefreshed.toISOString(), { hour: "numeric", minute: "2-digit", timeZoneName: "short" })}` : "Updating every 20 seconds"}</p>
           </div>
+          <Button type="button" variant="outline" disabled={refreshing || loading} onClick={() => window.open("/api/v1/admin/customer-carts/export", "_blank")} className="shrink-0 rounded-full border-black/10 bg-white">
+            <ShoppingCart className="mr-2 size-4" />Export CSV
+          </Button>
           <Button type="button" variant="outline" disabled={refreshing || loading} onClick={() => void loadCarts(search, true)} className="shrink-0 rounded-full border-black/10 bg-white">
             <RefreshCw className={`mr-2 size-4 ${refreshing ? "animate-spin" : ""}`} />Refresh
           </Button>

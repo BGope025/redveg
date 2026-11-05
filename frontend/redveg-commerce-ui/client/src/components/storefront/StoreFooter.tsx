@@ -87,6 +87,12 @@ export function StoreFooter() {
           <p className="mt-1 font-mono text-sm font-bold tracking-[0.08em] text-white">
             12825013001173
           </p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-white/45">
+            GST number
+          </p>
+          <p className="mt-1 font-mono text-sm font-bold tracking-[0.08em] text-white">
+            19AAOCR6645K1ZK
+          </p>
         </div>
       </div>
       <div className="border-t border-white/10">

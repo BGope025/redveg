@@ -104,4 +104,63 @@ async function getActiveCustomerCarts(req, res) {
   }
 }
 
-module.exports = { getActiveCustomerCarts };
+async function exportCustomerCarts(req, res) {
+  try {
+    const ordersDb = await getDatabaseConnection('orders');
+    await ensureCustomerAccountSchema(ordersDb);
+    const cartResult = await ordersDb.execute({
+      sql: `SELECT c.items_json, c.updated_at, p.display_name, p.email, p.phone_number
+        FROM customer_active_carts c
+        LEFT JOIN customer_profiles p ON p.firebase_uid = c.firebase_uid
+        WHERE c.item_count > 0 AND c.updated_at >= datetime('now', '-30 days')
+        ORDER BY c.updated_at DESC`,
+      args: [],
+    });
+    const rows = cartResult.rows.map((row) => ({ ...row, cartItems: parseCart(row.items_json) }));
+    const productIds = Array.from(new Set(rows.flatMap((row) => row.cartItems
+      .map((item) => String(item?.productId || '').trim()).filter(Boolean))));
+    let catalogRows = [];
+    if (productIds.length) {
+      const catalogDb = await getDatabaseConnection('catalog');
+      for (let offset = 0; offset < productIds.length; offset += 400) {
+        const productIdBatch = productIds.slice(offset, offset + 400);
+        const placeholders = productIdBatch.map(() => '?').join(', ');
+        const catalogResult = await catalogDb.execute({
+          sql: `SELECT p.id AS product_id, p.name AS product_name, v.id AS variant_id, v.sku, v.size, v.weight, v.price
+            FROM products p JOIN variants v ON v.product_id = p.id
+            WHERE p.id IN (${placeholders})`,
+          args: productIdBatch,
+        });
+        catalogRows.push(...catalogResult.rows);
+      }
+    }
+    const catalogMap = new Map(catalogRows.map((item) => [`${item.product_id}:${item.variant_id}`, item]));
+    const csvRows = [['Customer Name', 'Phone', 'Email', 'Product', 'Variant', 'Quantity', 'Unit Price', 'Total', 'Last Updated']];
+    for (const row of rows) {
+      const customerName = String(row.display_name || '').trim() || 'RedVeg customer';
+      for (const item of row.cartItems) {
+        const product = catalogMap.get(`${String(item.productId).trim()}:${String(item.variantId).trim()}`);
+        csvRows.push([
+          customerName,
+          row.phone_number || '',
+          row.email || '',
+          product?.product_name || 'Unknown',
+          [product?.size, product?.weight].filter(Boolean).join(' ') || product?.sku || 'Variant',
+          item.quantity,
+          product?.price || 0,
+          (Number(item.quantity) * Number(product?.price || 0)).toFixed(2),
+          row.updated_at
+        ]);
+      }
+    }
+    const csvContent = csvRows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="customer_carts.csv"');
+    return res.status(200).send(csvContent);
+  } catch (error) {
+    logger.error('Error exporting customer carts:', error);
+    return res.status(500).json({ success: false, message: 'Unable to export carts.' });
+  }
+}
+
+module.exports = { getActiveCustomerCarts, exportCustomerCarts };
